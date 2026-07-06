@@ -13,11 +13,13 @@ import (
 )
 
 var (
-	noAdd   bool
-	dryRun  bool
-	draft   bool
-	base    string
-	verbose bool
+	noAdd         bool
+	dryRun        bool
+	draft         bool
+	base          string
+	verbose       bool
+	pruneBranches       bool
+	pruneRemoteBranches bool
 )
 
 func main() {
@@ -75,8 +77,6 @@ func main() {
 			if err := repo.Status(args...); err != nil {
 				return err
 			}
-			fmt.Println()
-			sess.Success("Status ready 📋")
 			return nil
 		},
 	}
@@ -98,6 +98,16 @@ func main() {
 			return setup.Update()
 		},
 	}
+
+	syncCmd := &cobra.Command{
+		Use:   "sync",
+		Short: "Sincroniza com origin (pull da branch base)",
+		Long:  "Atualiza a branch base com git fetch + pull. Use --prune para remover branches mergeadas (local e GitHub) ou --prune-remote só no GitHub.",
+		RunE:  runSync,
+	}
+	syncCmd.Flags().BoolVar(&pruneBranches, "prune", false, "remove branches mergeadas no local e no GitHub")
+	syncCmd.Flags().BoolVar(&pruneRemoteBranches, "prune-remote", false, "remove branches mergeadas só no GitHub")
+	syncCmd.Flags().StringVar(&base, "base", "", "branch base (default: config base_branch)")
 
 	configCmd := &cobra.Command{
 		Use:   "config",
@@ -127,13 +137,12 @@ func main() {
 				return err
 			}
 			fmt.Print(cfg.Display())
-			sess.Success("Configuration loaded ✨")
 			return nil
 		},
 	}
 
 	configCmd.AddCommand(configInit, configShow)
-	root.AddCommand(installCmd, updateCmd, statusCmd, commitCmd, pushCmd, prCmd, configCmd)
+	root.AddCommand(installCmd, updateCmd, syncCmd, statusCmd, commitCmd, pushCmd, prCmd, configCmd)
 
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
@@ -167,4 +176,13 @@ func runPush(cmd *cobra.Command, args []string) error {
 func runPR(cmd *cobra.Command, args []string) error {
 	_, err := app.RunPR(cmd.Context(), opts())
 	return err
+}
+
+func runSync(cmd *cobra.Command, args []string) error {
+	return app.RunSync(app.SyncOptions{
+		Prune:       pruneBranches,
+		PruneRemote: pruneRemoteBranches,
+		Base:        base,
+		DryRun:      dryRun,
+	})
 }

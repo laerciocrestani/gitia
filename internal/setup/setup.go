@@ -236,7 +236,19 @@ func ensurePath(sess *ui.Session) error {
 }
 
 func goInstall(root string) error {
-	cmd := exec.Command("go", "install", "./cmd/gitia")
+	version, _ := gitOutput(root, "describe", "--tags", "--always", "--dirty")
+	ldflags := ""
+	if version != "" {
+		ldflags = fmt.Sprintf("-X github.com/laerciocrestani/gitia/internal/ui.buildVersion=%s", version)
+	}
+
+	args := []string{"install"}
+	if ldflags != "" {
+		args = append(args, "-ldflags", ldflags)
+	}
+	args = append(args, "./cmd/gitia")
+
+	cmd := exec.Command("go", args...)
 	cmd.Dir = root
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr

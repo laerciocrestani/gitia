@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/laerciocrestani/gitia/internal/config"
@@ -31,7 +32,7 @@ func RunOverview() error {
 	var overview *gitpkg.Overview
 	var openPR *prpkg.PRView
 
-	if err := sess.Step("Reading repository", func() error {
+	if err := sess.StepQuiet(func() error {
 		var err error
 		overview, err = repo.Overview(baseBranch)
 		return err
@@ -40,7 +41,7 @@ func RunOverview() error {
 	}
 
 	if hasGH() {
-		_ = sess.Step("Checking pull request", func() error {
+		_ = sess.StepQuiet(func() error {
 			client, err := prpkg.New()
 			if err != nil {
 				return nil
@@ -50,59 +51,46 @@ func RunOverview() error {
 		})
 	}
 
-	fmt.Println()
+	printSummary(sess, overview, openPR)
+	sess.Divider()
 	printOverview(sess, overview, openPR)
 	printGitiaConfig(sess)
+	sess.Divider()
 	printSuggestions(sess, overview, openPR)
-	fmt.Println()
-	sess.Success("Repository overview 📋")
 	return nil
 }
 
-func printOverview(sess *ui.Session, o *gitpkg.Overview, pr *prpkg.PRView) {
-	sess.Section("Repository")
-	sess.KV("Path", o.Root)
-	if o.RemoteURL != "" {
-		sess.KV("Remote", o.RemoteURL)
-	} else {
-		sess.KV("Remote", "none")
-	}
-
-	sess.Section("Branch")
+func printSummary(sess *ui.Session, o *gitpkg.Overview, pr *prpkg.PRView) {
+	fmt.Println()
+	sess.MetaRow("Repository", repoDisplayName(o))
 	if o.Detached {
-		sess.KV("HEAD", "detached")
+		sess.MetaRow("Branch", "detached HEAD")
 	} else {
-		sess.KV("Current", o.Branch)
+		sess.MetaRow("Branch", o.Branch)
 	}
+	sess.MetaRow("Status", sess.StatusValue(o.IsDirty(), o.Staged, o.Modified, o.Untracked))
 	if o.Upstream != "" {
-		sess.KV("Tracking", o.Upstream)
-		sess.KV("Sync", syncLabel(o.Ahead, o.Behind))
-	} else if !o.Detached {
-		sess.KV("Tracking", "no upstream")
+		sess.MetaRow("Sync", syncLabel(o.Ahead, o.Behind))
 	}
-	if o.CommitsAheadOfBase > 0 {
-		sess.KV("vs "+o.BaseBranch, fmt.Sprintf("%d commit(s) ahead", o.CommitsAheadOfBase))
-	} else if !o.Detached && o.Branch != o.BaseBranch {
-		sess.KV("vs "+o.BaseBranch, "up to date")
-	}
-
 	if pr != nil {
-		sess.Section("Pull request")
 		state := strings.ToLower(pr.State)
 		if pr.IsDraft {
 			state = "draft"
 		}
-		sess.KV("PR", fmt.Sprintf("#%d %s", pr.Number, pr.Title))
-		sess.KV("State", state)
+		sess.MetaRow("Pull request", fmt.Sprintf("#%d %s (%s)", pr.Number, truncate(pr.Title, 40), state))
+	}
+}
+
+func printOverview(sess *ui.Session, o *gitpkg.Overview, pr *prpkg.PRView) {
+	if pr != nil {
+		sess.Section("Pull request")
+		sess.KV("Title", pr.Title)
 		sess.KV("URL", pr.URL)
 	}
 
-	sess.Section("Working tree")
-	sess.KV("Staged", fmt.Sprintf("%d file(s)", o.Staged))
-	sess.KV("Modified", fmt.Sprintf("%d file(s)", o.Modified))
-	sess.KV("Untracked", fmt.Sprintf("%d file(s)", o.Untracked))
-	if !o.IsDirty() {
-		sess.KV("State", "clean ✓")
+	if o.CommitsAheadOfBase > 0 && !o.Detached && o.Branch != o.BaseBranch {
+		sess.Section("Branch delta")
+		sess.KV("vs "+o.BaseBranch, fmt.Sprintf("%d commit(s) ahead", o.CommitsAheadOfBase))
 	}
 
 	if len(o.FileChanges) > 0 {
@@ -164,16 +152,14 @@ func printOverview(sess *ui.Session, o *gitpkg.Overview, pr *prpkg.PRView) {
 }
 
 func printGitiaConfig(sess *ui.Session) {
-	sess.Section("Gitia")
+	sess.Section("Gitia config")
 	cfg, err := config.Load()
 	if err != nil {
-		sess.KV("Config", "not configured — run: gitia config")
+		sess.KV("Status", "not configured — run: gitia config")
 		return
 	}
 	sess.KV("Provider", string(cfg.Provider))
 	sess.KV("Model", cfg.Model)
-	sess.KV("Language", cfg.Language)
-	sess.KV("Base branch", cfg.BaseBranch)
 	sess.KV("API key", config.MaskAPIKey(cfg.APIKey))
 }
 
@@ -197,16 +183,15 @@ func printSuggestions(sess *ui.Session, o *gitpkg.Overview, pr *prpkg.PRView) {
 	}
 	if len(o.Stashes) > 0 {
 		tips = append(tips, "git stash pop")
-		tips = append(tips, "git stash list")
 	}
 	if o.Behind > 0 {
-		tips = append(tips, "git pull")
+		tips = append(tips, "gitia sync")
 	}
 	if len(tips) == 0 && !o.IsDirty() {
-		tips = append(tips, "working tree clean — nothing to do")
+		tips = append(tips, "working tree clean")
 	}
 
-	sess.Section("Suggested next steps")
+	sess.Section("Next steps")
 	for _, tip := range tips {
 		if strings.Contains(tip, " ") && !strings.HasPrefix(tip, "gitia") && !strings.HasPrefix(tip, "git ") && !strings.HasPrefix(tip, "gh ") {
 			sess.Bullet(tip)
@@ -219,6 +204,30 @@ func printSuggestions(sess *ui.Session, o *gitpkg.Overview, pr *prpkg.PRView) {
 		return
 	}
 	sess.Detail("install gh for PR info — https://cli.github.com/")
+}
+
+func repoDisplayName(o *gitpkg.Overview) string {
+	if o.RemoteURL != "" {
+		name := o.RemoteURL
+		name = strings.TrimSuffix(name, ".git")
+		if i := strings.LastIndex(name, "/"); i >= 0 {
+			name = name[i+1:]
+		}
+		if i := strings.LastIndex(name, ":"); i >= 0 {
+			name = name[i+1:]
+		}
+		if name != "" {
+			return name
+		}
+	}
+	return filepath.Base(o.Root)
+}
+
+func truncate(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	return s[:max-1] + "…"
 }
 
 func syncLabel(ahead, behind int) string {

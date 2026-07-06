@@ -2,18 +2,20 @@ package ui
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"sync"
 	"time"
 )
 
-const boxWidth = 44
+const dividerWidth = 42
 
 type Session struct {
 	command string
 	dryRun  bool
 	enabled bool
+	out     io.Writer
 }
 
 func New(command string, dryRun bool) *Session {
@@ -21,6 +23,7 @@ func New(command string, dryRun bool) *Session {
 		command: command,
 		dryRun:  dryRun,
 		enabled: colorsEnabled(),
+		out:     os.Stdout,
 	}
 }
 
@@ -31,7 +34,7 @@ func colorsEnabled() bool {
 	if os.Getenv("CI") != "" {
 		return false
 	}
-	fi, err := os.Stderr.Stat()
+	fi, err := os.Stdout.Stat()
 	if err != nil {
 		return false
 	}
@@ -39,19 +42,26 @@ func colorsEnabled() bool {
 }
 
 func (s *Session) Header() {
-	subtitle := strings.ToLower(s.command)
-	if s.dryRun {
-		subtitle += " · dry-run"
+	title := s.paint("Gitia", bold+cyan)
+	version := s.paint(Version(), dim)
+	fmt.Fprintf(s.out, "\n🤖 %s %s\n", title, version)
+}
+
+func (s *Session) Divider() {
+	line := strings.Repeat("─", dividerWidth)
+	fmt.Fprintln(s.out, s.paint(line, dim))
+}
+
+func (s *Session) MetaRow(label, value string) {
+	padded := fmt.Sprintf("%-12s", label)
+	fmt.Fprintf(s.out, "%s  %s\n", s.paint(padded, dim), value)
+}
+
+func (s *Session) StatusValue(dirty bool, staged, modified, untracked int) string {
+	if !dirty {
+		return s.paint("✓ clean", green)
 	}
-	if !s.enabled {
-		fmt.Fprintf(os.Stderr, "\n🤖 Gitia %s · %s\n\n", Version, subtitle)
-		return
-	}
-	s.printBox(
-		fmt.Sprintf("🤖 Gitia %s · %s", Version, subtitle),
-		"",
-	)
-	fmt.Fprintln(os.Stderr)
+	return s.paint(fmt.Sprintf("%d staged · %d modified · %d untracked", staged, modified, untracked), yellow)
 }
 
 func (s *Session) Step(label string, fn func() error) error {
@@ -71,83 +81,52 @@ func (s *Session) Step(label string, fn func() error) error {
 	return nil
 }
 
+func (s *Session) StepQuiet(fn func() error) error {
+	return fn()
+}
+
 func (s *Session) Info(label string) {
-	if !s.enabled {
-		fmt.Fprintln(os.Stderr, label)
-		return
-	}
-	fmt.Fprintln(os.Stderr, s.paint("  • "+label, dim))
+	fmt.Fprintln(s.out, s.paint("  • "+label, dim))
 }
 
 func (s *Session) Success(message string) {
-	if !s.enabled {
-		fmt.Fprintf(os.Stderr, "\n%s\n\n", message)
-		return
-	}
-	fmt.Fprintln(os.Stderr)
-	s.printBox(message, "")
-	fmt.Fprintln(os.Stderr)
+	fmt.Fprintf(s.out, "\n%s %s\n\n", s.paint("✓", green), s.paint(message, green))
 }
 
 func (s *Session) Detail(message string) {
-	if !s.enabled {
-		fmt.Fprintln(os.Stderr, message)
-		return
-	}
-	fmt.Fprintln(os.Stderr, s.paint("  → "+message, cyan))
+	fmt.Fprintln(s.out, s.paint("  "+message, dim))
 }
 
 func (s *Session) Warn(message string) {
-	if !s.enabled {
-		fmt.Fprintf(os.Stderr, "! %s\n", message)
-		return
-	}
-	fmt.Fprintln(os.Stderr, s.paint("  ! "+message, yellow))
+	fmt.Fprintln(os.Stderr, s.paint("! "+message, yellow))
 }
 
 func (s *Session) Prompt(label string) {
-	if !s.enabled {
-		fmt.Print(label)
-		return
-	}
-	fmt.Fprint(os.Stderr, s.paint("  ? "+label, magenta))
+	fmt.Fprint(os.Stderr, s.paint("? "+label, magenta))
 }
 
 func (s *Session) UsageBlock(lines []string) {
-	if !s.enabled {
-		for _, line := range lines {
-			fmt.Println(line)
-		}
+	if len(lines) == 0 {
 		return
 	}
-	fmt.Println()
-	s.printBoxLines(append([]string{s.paint("📊 Uso de IA", bold+cyan)}, lines...))
-	fmt.Println()
+	fmt.Fprintln(s.out)
+	s.Section("Uso de IA")
+	for _, line := range lines {
+		s.Bullet(line)
+	}
+	fmt.Fprintln(s.out)
 }
 
 func (s *Session) Section(title string) {
-	fmt.Println()
-	if s.enabled {
-		fmt.Println(s.paint("▸ "+title, bold+cyan))
-	} else {
-		fmt.Println("▸ " + title)
-	}
+	fmt.Fprintf(s.out, "\n%s\n", s.paint(title, bold+cyan))
 }
 
 func (s *Session) KV(key, value string) {
-	if s.enabled {
-		fmt.Printf("  %s %s\n", s.paint(key+":", dim), value)
-		return
-	}
-	fmt.Printf("  %s: %s\n", key, value)
+	fmt.Fprintf(s.out, "  %s %s\n", s.paint(key+":", dim), value)
 }
 
 func (s *Session) Bullet(text string) {
-	if s.enabled {
-		fmt.Println("  " + s.paint("•", dim) + " " + text)
-		return
-	}
-	fmt.Println("  • " + text)
+	fmt.Fprintf(s.out, "  %s %s\n", s.paint("•", dim), text)
 }
 
 func (s *Session) BranchLine(name string, current bool, upstream string, ahead, behind int) {
@@ -163,24 +142,20 @@ func (s *Session) BranchLine(name string, current bool, upstream string, ahead, 
 	if ahead > 0 || behind > 0 {
 		line += s.paint(fmt.Sprintf(" (↑%d ↓%d)", ahead, behind), yellow)
 	}
-	fmt.Println("  " + line)
+	fmt.Fprintf(s.out, "  %s\n", line)
 }
 
 func (s *Session) CommandHint(cmd string) {
-	if s.enabled {
-		fmt.Println("  " + s.paint("→", cyan) + " " + s.paint(cmd, bold+magenta))
-		return
-	}
-	fmt.Println("  → " + cmd)
+	fmt.Fprintf(s.out, "  %s %s\n", s.paint("→", cyan), s.paint(cmd, bold+magenta))
 }
 
 func (s *Session) FileChange(path, status, stats string) {
-	statusLabel := s.paint("["+status+"]", fileStatusColor(status))
-	line := "  " + statusLabel + " " + path
+	tag := s.paint(status, fileStatusColor(status))
+	line := fmt.Sprintf("  %s %s", tag, path)
 	if stats != "" {
 		line += " " + s.paint(stats, green)
 	}
-	fmt.Println(line)
+	fmt.Fprintln(s.out, line)
 }
 
 func fileStatusColor(status string) string {
@@ -196,34 +171,6 @@ func fileStatusColor(status string) string {
 	default:
 		return cyan
 	}
-}
-
-func (s *Session) printBox(lines ...string) {
-	s.printBoxLines(lines)
-}
-
-func (s *Session) printBoxLines(lines []string) {
-	top := "╭" + strings.Repeat("─", boxWidth) + "╮"
-	bottom := "╰" + strings.Repeat("─", boxWidth) + "╯"
-	fmt.Fprintln(os.Stderr, s.paint(top, cyan))
-	for _, line := range lines {
-		if line == "" {
-			fmt.Fprintln(os.Stderr, s.paint("│"+strings.Repeat(" ", boxWidth)+"│", cyan))
-			continue
-		}
-		fmt.Fprintln(os.Stderr, s.boxLine(line))
-	}
-	fmt.Fprintln(os.Stderr, s.paint(bottom, cyan))
-}
-
-func (s *Session) boxLine(content string) string {
-	inner := boxWidth - 2
-	plain := stripANSI(content)
-	pad := inner - visibleLen(plain)
-	if pad < 0 {
-		pad = 0
-	}
-	return s.paint("│", cyan) + " " + content + strings.Repeat(" ", pad) + " " + s.paint("│", cyan)
 }
 
 func (s *Session) spinner(label string) func() {
@@ -259,7 +206,7 @@ func (s *Session) spinner(label string) func() {
 }
 
 func (s *Session) doneLine(label string) {
-	fmt.Fprintf(os.Stderr, "  %s %s\n", s.paint("✓", green), s.paint(label, green))
+	fmt.Fprintf(os.Stderr, "  %s %s\n", s.paint("✓", green), s.paint(label, dim))
 }
 
 func (s *Session) failLine(label string) {
@@ -283,35 +230,3 @@ const (
 	magenta = "\033[35m"
 	red     = "\033[31m"
 )
-
-func stripANSI(s string) string {
-	var b strings.Builder
-	b.Grow(len(s))
-	skip := false
-	for i := 0; i < len(s); i++ {
-		if s[i] == '\033' {
-			skip = true
-			continue
-		}
-		if skip {
-			if s[i] == 'm' {
-				skip = false
-			}
-			continue
-		}
-		b.WriteByte(s[i])
-	}
-	return b.String()
-}
-
-func visibleLen(s string) int {
-	n := 0
-	for _, r := range s {
-		if r > 0xFFFF {
-			n += 2
-		} else {
-			n++
-		}
-	}
-	return n
-}

@@ -291,6 +291,7 @@ Rodar **`gitia` sem subcomando** exibe um **overview** do repositório (comando 
 
 ```
 gitia                 Overview do repositório (default)
+├── sync              fetch + pull da branch base (--prune para limpar branches)
 ├── update            git pull + reinstala o binário
 ├── status            Alias para git status
 ├── commit            Gera commit com IA a partir do diff local
@@ -308,6 +309,9 @@ gitia                 Overview do repositório (default)
 | Comando | O que faz | Chama IA? | Executa git? | Executa gh? |
 |---------|-----------|-----------|--------------|-------------|
 | `gitia` | Overview do repositório | não | leitura | não |
+| `gitia sync` | Sincroniza branch base com origin | não | `fetch`, `pull` | não |
+| `gitia sync --prune` | Sync + remove branches mergeadas (local e GitHub) | não | `fetch`, `pull`, `branch -d`, `push --delete` | não |
+| `gitia sync --prune-remote` | Sync + remove branches mergeadas só no GitHub | não | `fetch`, `pull`, `push --delete` | não |
 | `gitia commit` | Commit com mensagem gerada | 1× (commit) | `add`, `commit` | não |
 | `gitia push` | Commit + push | 1× (commit) | `add`, `commit`, `push` | não |
 | `gitia pr` | Commit + push + PR | 1–2× (commit + PR) | `add`, `commit`, `push` | `pr create` |
