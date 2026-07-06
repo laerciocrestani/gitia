@@ -1,12 +1,15 @@
 package ui
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"os"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/laerciocrestani/gitai/internal/uiprefs"
 )
 
 const dividerWidth = 42
@@ -28,10 +31,10 @@ func New(command string, dryRun bool) *Session {
 }
 
 func colorsEnabled() bool {
-	if os.Getenv("NO_COLOR") != "" || os.Getenv("GITAI_NO_UI") != "" {
+	if os.Getenv("CI") != "" {
 		return false
 	}
-	if os.Getenv("CI") != "" {
+	if !uiprefs.ColorsEnabled() {
 		return false
 	}
 	fi, err := os.Stdout.Stat()
@@ -170,6 +173,60 @@ func (s *Session) CommandHintWithNote(cmd, note string) {
 		s.paint(cmd, bold+magenta),
 		s.paint(note, dim),
 	)
+}
+
+func (s *Session) CommandHintMuted(cmd string) {
+	fmt.Fprintf(s.out, "  %s %s\n", s.paint("→", dim), s.paint(cmd, dim))
+}
+
+func (s *Session) CommandHintMutedWithNote(cmd, note string) {
+	fmt.Fprintf(s.out, "  %s %s %s\n",
+		s.paint("→", dim),
+		s.paint(cmd, dim),
+		s.paint(note, dim),
+	)
+}
+
+// Choose exibe opções numeradas e retorna o índice escolhido.
+func (s *Session) Choose(label string, options []string, recommended int) (int, error) {
+	if len(options) == 0 {
+		return 0, fmt.Errorf("nenhuma opção disponível")
+	}
+	if recommended < 0 || recommended >= len(options) {
+		recommended = 0
+	}
+
+	fmt.Fprintln(s.out)
+	fmt.Fprintf(s.out, "%s\n", s.paint(label, bold+cyan))
+	for i, opt := range options {
+		marker := " "
+		line := opt
+		if i == recommended {
+			marker = "●"
+			line += s.paint(" (recomendado)", green)
+		}
+		fmt.Fprintf(s.out, "  (%d) %s %s\n", i+1, marker, line)
+	}
+
+	reader := bufio.NewReader(os.Stdin)
+	for {
+		fmt.Fprintf(s.out, "%s", s.paint("Escolha [número ou Enter para padrão]: ", dim))
+		input, err := reader.ReadString('\n')
+		if err != nil {
+			return 0, err
+		}
+		input = strings.TrimSpace(input)
+		if input == "" {
+			return recommended, nil
+		}
+
+		var choice int
+		if _, err := fmt.Sscanf(input, "%d", &choice); err != nil || choice < 1 || choice > len(options) {
+			fmt.Fprintln(s.out, s.paint("  Opção inválida — informe um número da lista.", yellow))
+			continue
+		}
+		return choice - 1, nil
+	}
 }
 
 func (s *Session) FileChange(path, status, stats string) {

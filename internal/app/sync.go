@@ -118,23 +118,32 @@ func RunSync(opts SyncOptions) error {
 	if sess, ok := prog.(*ui.Session); ok {
 		sess.Section("Prune")
 	}
+
+	localRemoved := 0
 	for _, name := range local {
-		if err := pruneLocal(prog, repo, name, opts.DryRun); err != nil {
+		removed, err := pruneLocal(prog, repo, name, opts.DryRun)
+		if err != nil {
 			return err
 		}
+		if removed {
+			localRemoved++
+		}
 	}
+
+	remoteRemoved := 0
 	for _, name := range remote {
 		if err := pruneRemote(prog, repo, name, opts.DryRun); err != nil {
 			return err
 		}
+		remoteRemoved++
 	}
 
 	msg := "Synced"
-	if len(local) > 0 {
-		msg += fmt.Sprintf(" · %d local removed", len(local))
+	if localRemoved > 0 {
+		msg += fmt.Sprintf(" · %d local removed", localRemoved)
 	}
-	if len(remote) > 0 {
-		msg += fmt.Sprintf(" · %d remote removed", len(remote))
+	if remoteRemoved > 0 {
+		msg += fmt.Sprintf(" · %d remote removed", remoteRemoved)
 	}
 	prog.Success(msg)
 	return nil
@@ -152,14 +161,67 @@ func (o SyncOptions) pruneRemote() bool {
 	return o.Prune || o.PruneRemote
 }
 
-func pruneLocal(prog Progress, repo *gitpkg.Repo, name string, dryRun bool) error {
-	return prog.Step("Removing local "+name, func() error {
+func pruneLocal(prog Progress, repo *gitpkg.Repo, name string, dryRun bool) (bool, error) {
+	issue, err := repo.LocalBranchPruneIssue(name)
+	if err != nil {
+		return false, err
+	}
+
+	force := false
+	if issue != nil && issue.LocalAhead > 0 {
 		if dryRun {
-			prog.Detail("git branch -d " + name)
+			prog.Info(fmt.Sprintf(
+				"%s: diverge de %s (%d commit(s) local não enviado(s)) — usaria -D após confirmação",
+				name, issue.Upstream, issue.LocalAhead,
+			))
+			for _, commit := range issue.LocalCommits {
+				prog.Detail(commit)
+			}
+			return false, nil
+		}
+
+		sess, ok := prog.(*ui.Session)
+		if !ok {
+			return false, fmt.Errorf(
+				"branch %s diverge de %s (%d commit(s) local não enviado(s)) — use terminal interativo para escolher",
+				name, issue.Upstream, issue.LocalAhead,
+			)
+		}
+
+		action, err := promptPruneBranchConflict(sess, issue)
+		if err != nil {
+			return false, err
+		}
+		if action == PruneBranchKeep {
+			prog.Info("Mantida: " + name)
+			return false, nil
+		}
+		force = true
+	}
+
+	label := "Removing local " + name
+	if force {
+		label += " (forced)"
+	}
+
+	err = prog.Step(label, func() error {
+		if dryRun {
+			if force {
+				prog.Detail("git branch -D " + name)
+			} else {
+				prog.Detail("git branch -d " + name)
+			}
 			return nil
+		}
+		if force {
+			return repo.DeleteLocalBranchForce(name)
 		}
 		return repo.DeleteLocalBranch(name)
 	})
+	if err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func pruneRemote(prog Progress, repo *gitpkg.Repo, name string, dryRun bool) error {

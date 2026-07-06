@@ -230,6 +230,8 @@ base_branch: "main"
 co_author: ""
 max_diff_bytes: 120000
 clear_screen: false       # true = limpa o terminal antes de cada comando
+interactive_ui: true      # true = gitai abre TUI no terminal (padrão)
+ui_color: true            # cores na CLI e TUI (padrão)
 
 # opcional — sobrescreve preços padrão do Gemini
 # input_price_per_1m: 0.14
@@ -254,8 +256,8 @@ Crie `.gitai.yaml` na raiz do projeto. **Tem prioridade** sobre o config global.
 | `GITAI_CONFIG` | Caminho alternativo para o arquivo de config |
 | `GITAI_ROOT` | Caminho do clone gitai (usado por `gitai update`) |
 | `GITAI_NO_CLEAR` | Desativa limpeza do terminal (`clear_screen` ignorado) |
-| `GITAI_NO_UI` | Desativa cores, spinner e limpeza do terminal |
-| `NO_COLOR` | Desativa cores ANSI |
+| `GITAI_NO_UI` | Força overview CLI em vez da TUI (`interactive_ui` ignorado) |
+| `NO_COLOR` | Desativa cores ANSI (convenção Unix; ver [no-color.org](https://no-color.org)) |
 
 Exemplo:
 
@@ -285,6 +287,8 @@ A API key é **mascarada** na saída (ex.: `sk-o...abcd`).
 | `co_author` | string | não | vazio | Trailer no commit (ex.: `Co-authored-by: Nome <email@exemplo.com>`) |
 | `max_diff_bytes` | int | não | `120000` | Tamanho máximo do diff enviado à IA |
 | `clear_screen` | bool | não | `false` | Limpa o terminal antes de cada comando |
+| `interactive_ui` | bool | não | `true` | Abre TUI ao rodar `gitai` sem subcomando |
+| `ui_color` | bool | não | `true` | Cores ANSI na CLI e na TUI |
 | `input_price_per_1m` | float | não | — | USD por 1M tokens de input (estimativa de custo) |
 | `output_price_per_1m` | float | não | — | USD por 1M tokens de output (estimativa de custo) |
 

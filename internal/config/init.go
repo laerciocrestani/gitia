@@ -171,6 +171,36 @@ func InitInteractive() error {
 	}
 	cfg.ClearScreen = clearChoice == "Sim"
 
+	interactiveDefault := "Sim"
+	if !cfg.InteractiveUI {
+		interactiveDefault = "Não"
+	}
+	interactiveChoice, err := wiz.Select(reader, ui.SelectConfig{
+		Label:      "Interface interativa ao rodar gitai",
+		Options:    []string{"Sim", "Não"},
+		Default:    interactiveDefault,
+		AllowOther: false,
+	})
+	if err != nil {
+		return err
+	}
+	cfg.InteractiveUI = interactiveChoice == "Sim"
+
+	colorDefault := "Sim"
+	if !cfg.UIColor {
+		colorDefault = "Não"
+	}
+	colorChoice, err := wiz.Select(reader, ui.SelectConfig{
+		Label:      "Cores na interface (CLI e TUI)",
+		Options:    []string{"Sim", "Não"},
+		Default:    colorDefault,
+		AllowOther: false,
+	})
+	if err != nil {
+		return err
+	}
+	cfg.UIColor = colorChoice == "Sim"
+
 	if strings.TrimSpace(cfg.APIKey) == "" && strings.TrimSpace(os.Getenv(EnvAPIKey)) == "" {
 		return fmt.Errorf("chave API obrigatória — defina no wizard ou na variável %s", EnvAPIKey)
 	}

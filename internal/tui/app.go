@@ -31,6 +31,7 @@ type appModel struct {
 	err      error
 	status   string
 	diff     diffModel
+	report   reportModel
 	action   *actionState
 }
 
@@ -40,6 +41,7 @@ func newApp() appModel {
 		loading: true,
 		status:  "Carregando repositório…",
 		diff:    newDiffModel(),
+		report:  newReportModel(),
 	}
 }
 
@@ -67,6 +69,9 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.screen == ScreenDiff {
 			m.diff.SetSize(m.width, m.height)
 		}
+		if m.screen == ScreenReport {
+			m.report.SetSize(m.width, m.height)
+		}
 		return m, nil
 
 	case snapshotMsg:
@@ -85,6 +90,16 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.diff.SetSize(m.width, m.height)
 		if msg.err != nil {
 			m.status = msg.err.Error()
+		}
+		return m, nil
+
+	case reportLoadedMsg:
+		m.report.Load(msg)
+		m.report.SetSize(m.width, m.height)
+		if msg.err != nil {
+			m.status = msg.err.Error()
+		} else {
+			m.status = "Uso de IA"
 		}
 		return m, nil
 
@@ -125,12 +140,22 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateDiff(msg)
 		case ScreenAction:
 			return m.updateAction(msg)
+		case ScreenReport:
+			return m.updateReport(msg)
+		case ScreenHelp:
+			return m.updateHelp(msg)
 		}
 	}
 
 	if m.screen == ScreenDiff {
 		var cmd tea.Cmd
 		m.diff, cmd = m.diff.Update(msg)
+		return m, cmd
+	}
+
+	if m.screen == ScreenReport {
+		var cmd tea.Cmd
+		m.report, cmd = m.report.Update(msg)
 		return m, cmd
 	}
 
@@ -194,6 +219,14 @@ func (m appModel) updateDashboard(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.action = newActionState(ActionOpenPR)
 			m.status = "Abrindo PR"
 			return m, m.action.directCmd()
+		case dashKeyReport:
+			m.screen = ScreenReport
+			m.status = "Uso de IA"
+			return m, loadReportCmd(m.report.period)
+		case dashKeyHelp:
+			m.screen = ScreenHelp
+			m.status = "Ajuda"
+			return m, nil
 		}
 	}
 
@@ -202,7 +235,7 @@ func (m appModel) updateDashboard(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m appModel) updateDiff(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "esc", "q":
+	case "esc":
 		m.screen = ScreenDashboard
 		m.status = "Pronto"
 		return m, nil
@@ -210,6 +243,42 @@ func (m appModel) updateDiff(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.diff, cmd = m.diff.Update(msg)
 	return m, cmd
+}
+
+func (m appModel) updateReport(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.screen = ScreenDashboard
+		m.status = "Pronto"
+		return m, nil
+	case "r":
+		return m, loadReportCmd(m.report.period)
+	case "1":
+		m.report.period = report24h
+		return m, loadReportCmd(report24h)
+	case "2":
+		m.report.period = report7d
+		return m, loadReportCmd(report7d)
+	case "3":
+		m.report.period = reportMonth
+		return m, loadReportCmd(reportMonth)
+	case "a":
+		m.report.period = reportAll
+		return m, loadReportCmd(reportAll)
+	}
+	var cmd tea.Cmd
+	m.report, cmd = m.report.Update(msg)
+	return m, cmd
+}
+
+func (m appModel) updateHelp(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc", "?", "q":
+		m.screen = ScreenDashboard
+		m.status = "Pronto"
+		return m, nil
+	}
+	return m, nil
 }
 
 func (m appModel) updateAction(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -267,6 +336,13 @@ func (m appModel) View() string {
 
 	var b strings.Builder
 
+	if terminalTooSmall(m.width, m.height) {
+		b.WriteString(styleWarn.Render(fmt.Sprintf(
+			"  Terminal pequeno (%dx%d) — recomendado %dx%d+\n",
+			m.width, m.height, minWidth, minHeight,
+		)))
+	}
+
 	title := styleTitle.Render("🤖 GitAi")
 	ver := styleHeader.Render(ui.Version())
 	b.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, title, " ", styleHeader.Render("|"), " ", ver))
@@ -278,6 +354,13 @@ func (m appModel) View() string {
 	case ScreenDiff:
 		b.WriteString(m.diff.View(m.width))
 		help = diffHelpLine()
+	case ScreenReport:
+		b.WriteString(m.report.View())
+		help = reportHelpLine()
+	case ScreenHelp:
+		b.WriteString("\n")
+		b.WriteString(helpContent())
+		help = helpHelpLine()
 	case ScreenAction:
 		if m.action != nil {
 			b.WriteString(m.action.View(m.width))
@@ -378,11 +461,16 @@ func renderDashboard(snap *app.WorkspaceSnapshot) string {
 	b.WriteString(styleSection.Render("Next steps"))
 	b.WriteString("\n")
 	for _, step := range snap.NextSteps {
-		if step.Plain {
+		switch {
+		case step.Plain:
 			b.WriteString(styleHint.Render("  • " + step.Command))
-		} else if step.Note != "" {
+		case step.Muted && step.Note != "":
+			b.WriteString(fmt.Sprintf("  → %s %s\n", styleHint.Render(step.Command), styleHint.Render(step.Note)))
+		case step.Muted:
+			b.WriteString(fmt.Sprintf("  → %s\n", styleHint.Render(step.Command)))
+		case step.Note != "":
 			b.WriteString(fmt.Sprintf("  → %s %s\n", styleKey.Render(step.Command), styleHint.Render(step.Note)))
-		} else {
+		default:
 			b.WriteString(fmt.Sprintf("  → %s\n", styleKey.Render(step.Command)))
 		}
 	}

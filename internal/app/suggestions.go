@@ -10,6 +10,7 @@ type NextStep struct {
 	Command string
 	Note    string
 	Plain   bool
+	Muted   bool // menor relevância visual (alternativa secundária)
 }
 
 func buildNextSteps(o *gitpkg.Overview, pr *prpkg.PRView, configured bool) []NextStep {
@@ -21,9 +22,11 @@ func buildNextSteps(o *gitpkg.Overview, pr *prpkg.PRView, configured bool) []Nex
 
 	switch {
 	case o.IsDirty() && o.Upstream != "":
+		steps = append(steps, NextStep{Command: "gitai commit"})
 		steps = append(steps, NextStep{
 			Command: "gitai push",
 			Note:    "inclui commit automático com IA",
+			Muted:   true,
 		})
 	case o.IsDirty():
 		steps = append(steps, NextStep{Command: "gitai commit"})

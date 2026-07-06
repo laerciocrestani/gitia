@@ -224,8 +224,9 @@ Sem dependências novas em `internal/app`, `internal/git`, `internal/ai`.
 | Comando | Comportamento |
 |---------|---------------|
 | `gitai ui` | Abre TUI (explícito) |
-| `gitai` | Mantém overview CLI por ora; TUI default é fase 3 |
-| `GITAI_NO_UI=1` | Desabilita TUI se/when default mudar |
+| `gitai` | Abre TUI quando `interactive_ui: true` e terminal interativo |
+| `GITAI_NO_UI=1` | Força overview CLI (sobrescreve config) |
+| `NO_COLOR=1` | Sem cores — convenção Unix (sobrescreve `ui_color`) |
 
 Detecção de terminal: `term.IsTerminal` + `GITAI_NO_UI` + `CI` — mesma lógica de `ui.Session`.
 
@@ -247,10 +248,10 @@ Detecção de terminal: `term.IsTerminal` + `GITAI_NO_UI` + `CI` — mesma lógi
 
 ### Fase 3 — Polish
 
-- [ ] Tela de report/usage
-- [ ] Temas (dark/light via `NO_COLOR`)
-- [ ] `gitai` default → TUI quando TTY interativo
-- [ ] Testes de keymap e snapshot
+- [x] Tela de report/usage
+- [x] Temas (dark/light via `NO_COLOR`)
+- [x] `gitai` default → TUI quando TTY interativo
+- [x] Testes de keymap e snapshot
 
 ## Testes
 

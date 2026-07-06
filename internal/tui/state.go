@@ -7,4 +7,6 @@ const (
 	ScreenDashboard Screen = iota
 	ScreenDiff
 	ScreenAction
+	ScreenReport
+	ScreenHelp
 )

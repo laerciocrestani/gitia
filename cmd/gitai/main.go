@@ -40,7 +40,7 @@ func main() {
 	root.PersistentFlags().BoolVar(&dryRun, "dry-run", false, "simula sem executar git/gh")
 	root.PersistentFlags().BoolVar(&verbose, "verbose", false, "exibe detalhes da sugestão da IA")
 	root.PersistentPreRun = func(cmd *cobra.Command, args []string) {
-		if isConfigCommand(cmd) {
+		if skipClearScreen(cmd) {
 			return
 		}
 		if config.ClearScreenEnabled() {
@@ -258,6 +258,9 @@ func opts() app.Options {
 }
 
 func runOverview(cmd *cobra.Command, args []string) error {
+	if tui.ShouldLaunch() {
+		return tui.Run()
+	}
 	return app.RunOverview()
 }
 
@@ -300,6 +303,21 @@ func isConfigCommand(cmd *cobra.Command) bool {
 		if c.Name() == "config" {
 			return true
 		}
+	}
+	return false
+}
+
+func skipClearScreen(cmd *cobra.Command) bool {
+	if isConfigCommand(cmd) {
+		return true
+	}
+	for c := cmd; c != nil; c = c.Parent() {
+		if c.Name() == "ui" {
+			return true
+		}
+	}
+	if cmd.Parent() == nil && tui.ShouldLaunch() {
+		return true
 	}
 	return false
 }

@@ -7,7 +7,7 @@ import (
 
 // ClearScreen limpa o terminal (ANSI). Respeita GITAI_NO_CLEAR e terminais não interativos.
 func ClearScreen() {
-	if os.Getenv("GITAI_NO_CLEAR") != "" || os.Getenv("GITAI_NO_UI") != "" {
+	if os.Getenv("GITAI_NO_CLEAR") != "" {
 		return
 	}
 	if os.Getenv("CI") != "" {

@@ -29,11 +29,14 @@ func TestBuildNextSteps_dirtyWithUpstream(t *testing.T) {
 	steps := buildNextSteps(o, nil, true)
 	cmds := stepCommands(steps)
 
-	if len(cmds) != 1 || cmds[0] != "gitai push" {
-		t.Fatalf("commands = %v, want [gitai push]", cmds)
+	if len(cmds) != 2 || cmds[0] != "gitai commit" || cmds[1] != "gitai push" {
+		t.Fatalf("commands = %v, want [gitai commit gitai push]", cmds)
 	}
-	if steps[0].Note == "" {
+	if steps[1].Note == "" {
 		t.Fatal("expected commit note on gitai push")
+	}
+	if !steps[1].Muted {
+		t.Fatal("expected gitai push to be muted")
 	}
 }
 
@@ -82,8 +85,11 @@ func TestBuildNextSteps_dirtyWithExistingPR(t *testing.T) {
 
 	steps := buildNextSteps(o, pr, true)
 	cmds := stepCommands(steps)
-	if len(cmds) != 2 || cmds[0] != "gitai push" || cmds[1] != "gitai pr view" {
-		t.Fatalf("commands = %v, want [gitai push gitai pr view]", cmds)
+	if len(cmds) != 3 || cmds[0] != "gitai commit" || cmds[1] != "gitai push" || cmds[2] != "gitai pr view" {
+		t.Fatalf("commands = %v, want [gitai commit gitai push gitai pr view]", cmds)
+	}
+	if !steps[1].Muted {
+		t.Fatal("expected gitai push to be muted")
 	}
 }
 

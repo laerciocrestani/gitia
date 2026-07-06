@@ -15,6 +15,8 @@ const (
 	dashKeyDiff
 	dashKeySync
 	dashKeyOpenPR
+	dashKeyReport
+	dashKeyHelp
 )
 
 func parseGlobalKey(msg tea.KeyMsg) (keyMsg, bool) {
@@ -29,16 +31,20 @@ func parseGlobalKey(msg tea.KeyMsg) (keyMsg, bool) {
 
 func parseDashboardKey(msg tea.KeyMsg, snap *app.WorkspaceSnapshot) (dashKey, bool) {
 	switch msg.String() {
+	case "?":
+		return dashKeyHelp, true
+	case "u":
+		return dashKeyReport, true
 	case "c":
 		if snap != nil && snap.Overview != nil && snap.Overview.IsDirty() && snap.ConfigErr == nil {
 			return dashKeyCommit, true
 		}
 	case "p":
-		if canPush(snap) {
+		if CanPush(snap) {
 			return dashKeyPush, true
 		}
-	case "P":
-		if canPR(snap) {
+	case "P", "shift+p":
+		if CanPR(snap) {
 			return dashKeyPR, true
 		}
 	case "d":
@@ -55,7 +61,8 @@ func parseDashboardKey(msg tea.KeyMsg, snap *app.WorkspaceSnapshot) (dashKey, bo
 	return dashKeyNone, false
 }
 
-func canPush(snap *app.WorkspaceSnapshot) bool {
+// CanPush indica se push está disponível no snapshot atual.
+func CanPush(snap *app.WorkspaceSnapshot) bool {
 	if snap == nil || snap.Overview == nil || snap.ConfigErr != nil {
 		return false
 	}
@@ -63,7 +70,8 @@ func canPush(snap *app.WorkspaceSnapshot) bool {
 	return o.IsDirty() || o.Ahead > 0
 }
 
-func canPR(snap *app.WorkspaceSnapshot) bool {
+// CanPR indica se criar PR está disponível.
+func CanPR(snap *app.WorkspaceSnapshot) bool {
 	if snap == nil || snap.Overview == nil || snap.ConfigErr != nil || !snap.HasGH {
 		return false
 	}
@@ -76,9 +84,8 @@ func dashboardHelpLine() string {
 		styleKey.Render("p") + " push  " +
 		styleKey.Render("P") + " pr  " +
 		styleKey.Render("d") + " diff  " +
-		styleKey.Render("s") + " sync  " +
-		styleKey.Render("o") + " open pr  " +
-		styleKey.Render("r") + " refresh  " +
+		styleKey.Render("u") + " usage  " +
+		styleKey.Render("?") + " help  " +
 		styleKey.Render("q") + " quit"
 }
 

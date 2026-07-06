@@ -152,6 +152,10 @@ func printSuggestions(sess *ui.Session, snap *WorkspaceSnapshot) {
 		switch {
 		case step.Plain:
 			sess.Bullet(step.Command)
+		case step.Muted && step.Note != "":
+			sess.CommandHintMutedWithNote(step.Command, step.Note)
+		case step.Muted:
+			sess.CommandHintMuted(step.Command)
 		case step.Note != "":
 			sess.CommandHintWithNote(step.Command, step.Note)
 		default:
