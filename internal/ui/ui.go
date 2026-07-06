@@ -91,7 +91,7 @@ func (s *Session) Info(label string) {
 }
 
 func (s *Session) Success(message string) {
-	fmt.Fprintf(s.out, "\n%s %s\n\n", s.paint("✓", green), s.paint(message, green))
+	fmt.Fprintf(s.out, "\n%s %s\n", s.paint("✓", green), s.paint(message, green))
 }
 
 func (s *Session) Detail(message string) {
@@ -104,6 +104,11 @@ func (s *Session) Warn(message string) {
 
 func (s *Session) Prompt(label string) {
 	fmt.Fprint(os.Stderr, s.paint("? "+label, magenta))
+}
+
+// Input exibe um prompt de texto simples, sem "?".
+func (s *Session) Input(label string) {
+	fmt.Fprint(s.out, label)
 }
 
 func (s *Session) UsageBlock(lines []string) {
@@ -119,7 +124,7 @@ func (s *Session) UsageBlock(lines []string) {
 }
 
 func (s *Session) Section(title string) {
-	fmt.Fprintf(s.out, "\n%s\n", s.paint(title, bold+cyan))
+	fmt.Fprintf(s.out, "\n%s", s.paint(title, bold+cyan))
 }
 
 // SectionFirst é a primeira seção após o header — sem linha em branco antes.

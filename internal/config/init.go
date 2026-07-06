@@ -248,8 +248,7 @@ func promptAPIKey(sess *ui.Session, reader *bufio.Reader, provider Provider, cur
 		}
 	}
 
-	sess.Info("Chave em " + apiKeyHint(provider))
-	sess.Prompt("Chave API: ")
+	sess.Input("\n  • Chave em " + apiKeyHint(provider) + "\nChave API: ")
 	input, err := reader.ReadString('\n')
 	if err != nil {
 		return "", err

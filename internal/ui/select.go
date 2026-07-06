@@ -63,6 +63,10 @@ func (s *Session) Select(reader *bufio.Reader, cfg SelectConfig) (string, error)
 	return selected, nil
 }
 
+func (s *Session) doneChoice(label, value string) {
+	fmt.Fprintf(s.out, "\n  %s %s", s.paint("✓", green), s.paint(label+": "+value, dim))
+}
+
 func (s *Session) selectInteractive(label string, options []string, start int) (int, error) {
 	fd := int(os.Stdin.Fd())
 	oldState, err := term.MakeRaw(fd)
@@ -82,7 +86,7 @@ func (s *Session) selectInteractive(label string, options []string, start int) (
 		cursor = len(options) - 1
 	}
 
-	lines := len(options) + 3
+	lines := len(options) + 2
 
 	render := func() {
 		fmt.Fprint(out, "\033[?25l")
@@ -90,7 +94,6 @@ func (s *Session) selectInteractive(label string, options []string, start int) (
 		b.WriteString(s.paint(label, bold+cyan))
 		b.WriteString(eol)
 		b.WriteString(s.paint("  ↑↓ navegar · Enter confirmar", dim))
-		b.WriteString(eol)
 		b.WriteString(eol)
 		for i, opt := range options {
 			marker := " "
@@ -110,7 +113,6 @@ func (s *Session) selectInteractive(label string, options []string, start int) (
 		fmt.Fprintf(out, "\033[%dA\033[J", lines)
 	}
 
-	fmt.Fprint(out, eol)
 	render()
 	defer fmt.Fprint(out, "\033[?25h")
 
@@ -124,7 +126,10 @@ func (s *Session) selectInteractive(label string, options []string, start int) (
 		switch key {
 		case keyEnter:
 			clear()
-			fmt.Fprintf(out, "  %s %s%s%s", s.paint("✓", green), s.paint(label+": "+options[cursor], dim), eol, eol)
+			if options[cursor] == otherOption {
+				return cursor, nil
+			}
+			s.doneChoice(label, options[cursor])
 			return cursor, nil
 		case keyCancel:
 			clear()
@@ -192,33 +197,39 @@ func readKey(r io.Reader) (keyKind, error) {
 }
 
 func (s *Session) selectFallback(reader *bufio.Reader, label string, options []string, defaultIdx int) (int, error) {
-	fmt.Fprintf(s.out, "\n%s\n", s.paint(label, bold+cyan))
+	fmt.Fprintf(s.out, "\n%s", s.paint(label, bold+cyan))
 	for i, opt := range options {
 		marker := " "
 		if i == defaultIdx {
 			marker = "●"
 		}
-		fmt.Fprintf(s.out, "  (%s) %d) %s\n", marker, i+1, opt)
+		fmt.Fprintf(s.out, "\n  (%s) %d) %s", marker, i+1, opt)
 	}
-	fmt.Fprintf(s.out, "\n%s", s.paint("? Escolha [número ou Enter para padrão]: ", magenta))
+	fmt.Fprintf(s.out, "\n%s", s.paint("Escolha [número ou Enter para padrão]: ", dim))
 	input, err := reader.ReadString('\n')
 	if err != nil {
 		return 0, err
 	}
 	input = strings.TrimSpace(input)
 	if input == "" {
+		if options[defaultIdx] != otherOption {
+			s.doneChoice(label, options[defaultIdx])
+		}
 		return defaultIdx, nil
 	}
 	var choice int
 	if _, err := fmt.Sscanf(input, "%d", &choice); err != nil || choice < 1 || choice > len(options) {
 		return 0, fmt.Errorf("opção inválida: %q", input)
 	}
-	return choice - 1, nil
+	idx := choice - 1
+	if options[idx] != otherOption {
+		s.doneChoice(label, options[idx])
+	}
+	return idx, nil
 }
 
 func (s *Session) promptCustom(reader *bufio.Reader, label string) (string, error) {
-	fmt.Fprintln(os.Stderr)
-	s.Prompt(label + ": ")
+	s.Input("\n" + label + ": ")
 	input, err := reader.ReadString('\n')
 	if err != nil {
 		return "", err
