@@ -15,12 +15,15 @@ import (
 )
 
 type Options struct {
-	NoAdd   bool
-	DryRun  bool
-	Draft   bool
-	Base    string
-	Verbose bool
-	UI      *ui.Session
+	NoAdd               bool
+	DryRun              bool
+	Draft               bool
+	Base                string
+	Verbose             bool
+	UI                  *ui.Session
+	Progress            Progress
+	CachedCommitMessage string
+	CachedPRSuggestion  *ai.PRSuggestion
 }
 
 type Result struct {
@@ -38,11 +41,29 @@ func (o Options) session(command string) *ui.Session {
 	return ui.New(command, o.DryRun)
 }
 
-func RunCommit(ctx context.Context, opts Options) (*Result, error) {
-	sess := opts.session("commit")
-	sess.Header()
+func (o Options) reporter(command string) Progress {
+	if o.Progress != nil {
+		return o.Progress
+	}
+	return o.session(command)
+}
 
-	result, provider, err := commitFlow(ctx, opts, sess)
+func printUsage(prog Progress, cfg *config.Config, summary ai.UsageSummary) {
+	if prog == nil || len(summary.Records) == 0 {
+		return
+	}
+	for _, line := range summary.FormatLines(cfg) {
+		prog.Detail(line)
+	}
+}
+
+func RunCommit(ctx context.Context, opts Options) (*Result, error) {
+	prog := opts.reporter("commit")
+	if opts.Progress == nil {
+		opts.session("commit").Header()
+	}
+
+	result, provider, err := commitFlow(ctx, opts, prog)
 	if err != nil {
 		return nil, err
 	}
@@ -52,19 +73,73 @@ func RunCommit(ctx context.Context, opts Options) (*Result, error) {
 		if cfg != nil {
 			recordAIUsage("commit", cfg, provider.UsageStats())
 		}
-		provider.UsageStats().PrintWith(sess, cfg)
+		printUsage(prog, cfg, provider.UsageStats())
 	}
 
 	if result != nil && result.Message != "" && !opts.DryRun {
-		sess.Detail(formatter.TitleLine(result.Message))
+		prog.Detail(formatter.TitleLine(result.Message))
 	}
-	sess.Success("Ready! 🚀")
+	prog.Success("Ready! 🚀")
 	return result, nil
 }
 
+// PreviewCommit gera sugestão de commit sem gravar (DryRun).
+func PreviewCommit(ctx context.Context, opts Options) (*Result, error) {
+	opts.DryRun = true
+	result, provider, err := commitFlow(ctx, opts, opts.reporter("commit"))
+	if err != nil {
+		return nil, err
+	}
+	if provider != nil {
+		cfg, _ := config.Load()
+		if cfg != nil {
+			recordAIUsage("commit", cfg, provider.UsageStats())
+		}
+	}
+	return result, nil
+}
+
+// ConfirmCommit grava mensagem já sugerida pela IA.
+func ConfirmCommit(ctx context.Context, preview *Result, opts Options) (*Result, error) {
+	if preview == nil || preview.Message == "" {
+		return nil, fmt.Errorf("nenhuma mensagem de commit para confirmar")
+	}
+	opts.DryRun = false
+	opts.CachedCommitMessage = preview.Message
+	prog := opts.reporter("commit")
+	result, _, err := commitFlow(ctx, opts, prog)
+	if err != nil {
+		return nil, err
+	}
+	prog.Success("Commit criado ✓")
+	return result, nil
+}
+
+// PreviewPR gera sugestão de PR sem push/create (DryRun).
+func PreviewPR(ctx context.Context, opts Options) (*Result, error) {
+	opts.DryRun = true
+	return RunPR(ctx, opts)
+}
+
+// ConfirmPR cria o PR a partir de preview já gerado.
+func ConfirmPR(ctx context.Context, preview *Result, draft bool, opts Options) (*Result, error) {
+	if preview == nil || preview.PRSuggestion == nil {
+		return nil, fmt.Errorf("nenhuma sugestão de PR para confirmar")
+	}
+	opts.DryRun = false
+	opts.Draft = draft
+	opts.CachedPRSuggestion = preview.PRSuggestion
+	if preview.Message != "" {
+		opts.CachedCommitMessage = preview.Message
+	}
+	return RunPR(ctx, opts)
+}
+
 func RunPush(ctx context.Context, opts Options) (*Result, error) {
-	sess := opts.session("push")
-	sess.Header()
+	prog := opts.reporter("push")
+	if opts.Progress == nil {
+		opts.session("push").Header()
+	}
 
 	repo, err := gitpkg.New()
 	if err != nil {
@@ -75,9 +150,9 @@ func RunPush(ctx context.Context, opts Options) (*Result, error) {
 	}
 
 	if !opts.NoAdd {
-		if err := sess.Step("Staging changes", func() error {
+		if err := prog.Step("Staging changes", func() error {
 			if opts.DryRun {
-				sess.Detail("git add .")
+				prog.Detail("git add .")
 				return nil
 			}
 			return repo.AddAll()
@@ -97,19 +172,19 @@ func RunPush(ctx context.Context, opts Options) (*Result, error) {
 	if diff != "" {
 		pushOpts := opts
 		pushOpts.NoAdd = true
-		pushOpts.UI = sess
-		result, provider, err = commitFlow(ctx, pushOpts, sess)
+		pushOpts.Progress = prog
+		result, provider, err = commitFlow(ctx, pushOpts, prog)
 		if err != nil {
 			return nil, err
 		}
 	} else {
-		sess.Info("No pending changes — pushing existing commits")
+		prog.Info("No pending changes — pushing existing commits")
 		result = &Result{}
 	}
 
-	if err := sess.Step("Pushing to origin", func() error {
+	if err := prog.Step("Pushing to origin", func() error {
 		if opts.DryRun {
-			sess.Detail("git push -u origin HEAD")
+			prog.Detail("git push -u origin HEAD")
 			return nil
 		}
 		return repo.Push()
@@ -122,15 +197,17 @@ func RunPush(ctx context.Context, opts Options) (*Result, error) {
 		if cfg != nil {
 			recordAIUsage("push", cfg, provider.UsageStats())
 		}
-		provider.UsageStats().PrintWith(sess, cfg)
+		printUsage(prog, cfg, provider.UsageStats())
 	}
-	sess.Success("Ready! 🚀")
+	prog.Success("Ready! 🚀")
 	return result, nil
 }
 
 func RunPR(ctx context.Context, opts Options) (*Result, error) {
-	sess := opts.session("pr")
-	sess.Header()
+	prog := opts.reporter("pr")
+	if opts.Progress == nil {
+		opts.session("pr").Header()
+	}
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -151,7 +228,7 @@ func RunPR(ctx context.Context, opts Options) (*Result, error) {
 	}
 
 	var resolvedBase string
-	if err := sess.Step("Resolving base branch", func() error {
+	if err := prog.Step("Resolving base branch", func() error {
 		var err error
 		resolvedBase, err = repo.ResolveBase(base)
 		return err
@@ -159,15 +236,19 @@ func RunPR(ctx context.Context, opts Options) (*Result, error) {
 		return nil, err
 	}
 
-	provider, err := ai.New(cfg)
-	if err != nil {
-		return nil, err
+	var provider ai.Provider
+	if opts.CachedPRSuggestion == nil {
+		var err error
+		provider, err = ai.New(cfg)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	if !opts.NoAdd {
-		if err := sess.Step("Staging changes", func() error {
+		if err := prog.Step("Staging changes", func() error {
 			if opts.DryRun {
-				sess.Detail("git add .")
+				prog.Detail("git add .")
 				return nil
 			}
 			return repo.AddAll()
@@ -183,8 +264,8 @@ func RunPR(ctx context.Context, opts Options) (*Result, error) {
 		return nil, err
 	}
 
-	if hasStaged {
-		commitResult, err := commitStaged(ctx, cfg, repo, opts, provider, sess)
+	if hasStaged || opts.CachedCommitMessage != "" {
+		commitResult, err := commitStaged(ctx, cfg, repo, opts, provider, prog)
 		if err != nil {
 			return nil, err
 		}
@@ -198,12 +279,12 @@ func RunPR(ctx context.Context, opts Options) (*Result, error) {
 		if same {
 			return nil, fmt.Errorf("nenhuma alteração em relação à %s", baseForGH(resolvedBase))
 		}
-		sess.Info("Using existing commits on branch")
+		prog.Info("Using existing commits on branch")
 	}
 
-	if err := sess.Step("Pushing to origin", func() error {
+	if err := prog.Step("Pushing to origin", func() error {
 		if opts.DryRun {
-			sess.Detail("git push -u origin HEAD")
+			prog.Detail("git push -u origin HEAD")
 			return nil
 		}
 		return repo.Push()
@@ -212,7 +293,7 @@ func RunPR(ctx context.Context, opts Options) (*Result, error) {
 	}
 
 	var branch string
-	if err := sess.Step("Reading branch diff", func() error {
+	if err := prog.Step("Reading branch diff", func() error {
 		var err error
 		branch, err = repo.CurrentBranch()
 		return err
@@ -220,29 +301,33 @@ func RunPR(ctx context.Context, opts Options) (*Result, error) {
 		return nil, err
 	}
 
-	diff, err := repo.DiffBranch(resolvedBase)
-	if err != nil {
-		return nil, err
-	}
-	if strings.TrimSpace(diff) == "" {
-		return nil, fmt.Errorf("diff vazio em relação à %s", baseForGH(resolvedBase))
-	}
-
-	commitLog, err := repo.LogOnBranch(resolvedBase)
-	if err != nil {
-		return nil, err
-	}
-
 	var prSuggestion *ai.PRSuggestion
-	sess.Detail(ai.DescribePreparedInput(cfg, diff, "pr"))
-	if err := sess.Step("Thinking", func() error {
-		prSuggestion, err = provider.SuggestPR(ctx, diff, branch, baseForGH(resolvedBase), cfg.Language, commitLog)
-		return err
-	}); err != nil {
-		return nil, err
-	}
-	if line := ai.FormatLatestUsage(provider.UsageStats()); line != "" {
-		sess.Detail(line)
+	if opts.CachedPRSuggestion != nil {
+		prSuggestion = opts.CachedPRSuggestion
+	} else {
+		diff, err := repo.DiffBranch(resolvedBase)
+		if err != nil {
+			return nil, err
+		}
+		if strings.TrimSpace(diff) == "" {
+			return nil, fmt.Errorf("diff vazio em relação à %s", baseForGH(resolvedBase))
+		}
+
+		commitLog, err := repo.LogOnBranch(resolvedBase)
+		if err != nil {
+			return nil, err
+		}
+
+		prog.Detail(ai.DescribePreparedInput(cfg, diff, "pr"))
+		if err := prog.Step("Thinking", func() error {
+			prSuggestion, err = provider.SuggestPR(ctx, diff, branch, baseForGH(resolvedBase), cfg.Language, commitLog)
+			return err
+		}); err != nil {
+			return nil, err
+		}
+		if line := ai.FormatLatestUsage(provider.UsageStats()); line != "" {
+			prog.Detail(line)
+		}
 	}
 
 	result.PRSuggestion = prSuggestion
@@ -259,15 +344,17 @@ func RunPR(ctx context.Context, opts Options) (*Result, error) {
 	if opts.DryRun {
 		preview := prClient.PreviewCreate(prSuggestion, resolvedBase, opts.Draft)
 		result.PRPreview = preview
-		sess.Detail(preview)
-		recordAIUsage("pr", cfg, provider.UsageStats())
-		provider.UsageStats().PrintWith(sess, cfg)
-		sess.Success("Ready! 🚀")
+		prog.Detail(preview)
+		if provider != nil {
+			recordAIUsage("pr", cfg, provider.UsageStats())
+			printUsage(prog, cfg, provider.UsageStats())
+		}
+		prog.Success("Ready! 🚀")
 		return result, nil
 	}
 
 	var url string
-	if err := sess.Step("Creating Pull Request", func() error {
+	if err := prog.Step("Creating Pull Request", func() error {
 		url, err = prClient.Create(prSuggestion, resolvedBase, opts.Draft)
 		return err
 	}); err != nil {
@@ -275,14 +362,16 @@ func RunPR(ctx context.Context, opts Options) (*Result, error) {
 	}
 
 	result.PRURL = url
-	sess.Detail(url)
-	recordAIUsage("pr", cfg, provider.UsageStats())
-	provider.UsageStats().PrintWith(sess, cfg)
-	sess.Success("Ready! 🚀")
+	prog.Detail(url)
+	if provider != nil {
+		recordAIUsage("pr", cfg, provider.UsageStats())
+		printUsage(prog, cfg, provider.UsageStats())
+	}
+	prog.Success("Ready! 🚀")
 	return result, nil
 }
 
-func commitFlow(ctx context.Context, opts Options, sess *ui.Session) (*Result, ai.Provider, error) {
+func commitFlow(ctx context.Context, opts Options, prog Progress) (*Result, ai.Provider, error) {
 	cfg, err := config.Load()
 	if err != nil {
 		return nil, nil, err
@@ -297,9 +386,9 @@ func commitFlow(ctx context.Context, opts Options, sess *ui.Session) (*Result, a
 	}
 
 	if !opts.NoAdd {
-		if err := sess.Step("Staging changes", func() error {
+		if err := prog.Step("Staging changes", func() error {
 			if opts.DryRun {
-				sess.Detail("git add .")
+				prog.Detail("git add .")
 				return nil
 			}
 			return repo.AddAll()
@@ -309,18 +398,20 @@ func commitFlow(ctx context.Context, opts Options, sess *ui.Session) (*Result, a
 	}
 
 	var diff string
-	if err := sess.Step("Reading git diff", func() error {
-		var err error
-		diff, err = repo.DiffForCommit()
-		if err != nil {
-			return err
+	if opts.CachedCommitMessage == "" {
+		if err := prog.Step("Reading git diff", func() error {
+			var err error
+			diff, err = repo.DiffForCommit()
+			if err != nil {
+				return err
+			}
+			if diff == "" {
+				return fmt.Errorf("nenhuma alteração para commitar")
+			}
+			return nil
+		}); err != nil {
+			return nil, nil, err
 		}
-		if diff == "" {
-			return fmt.Errorf("nenhuma alteração para commitar")
-		}
-		return nil
-	}); err != nil {
-		return nil, nil, err
 	}
 
 	provider, err := ai.New(cfg)
@@ -329,18 +420,24 @@ func commitFlow(ctx context.Context, opts Options, sess *ui.Session) (*Result, a
 	}
 
 	var suggestion *ai.CommitSuggestion
-	sess.Detail(ai.DescribePreparedInput(cfg, diff, "commit"))
-	if err := sess.Step("Thinking", func() error {
-		suggestion, err = provider.SuggestCommit(ctx, diff, cfg.Language)
-		return err
-	}); err != nil {
-		return nil, nil, err
-	}
-	if line := ai.FormatLatestUsage(provider.UsageStats()); line != "" {
-		sess.Detail(line)
+	var message string
+
+	if opts.CachedCommitMessage != "" {
+		message = opts.CachedCommitMessage
+	} else {
+		prog.Detail(ai.DescribePreparedInput(cfg, diff, "commit"))
+		if err := prog.Step("Thinking", func() error {
+			suggestion, err = provider.SuggestCommit(ctx, diff, cfg.Language)
+			return err
+		}); err != nil {
+			return nil, nil, err
+		}
+		if line := ai.FormatLatestUsage(provider.UsageStats()); line != "" {
+			prog.Detail(line)
+		}
+		message = formatter.FormatCommit(suggestion, cfg.CoAuthor)
 	}
 
-	message := formatter.FormatCommit(suggestion, cfg.CoAuthor)
 	result := &Result{
 		Suggestion: suggestion,
 		Message:    message,
@@ -350,9 +447,9 @@ func commitFlow(ctx context.Context, opts Options, sess *ui.Session) (*Result, a
 		printCommitVerbose(suggestion, message)
 	}
 
-	if err := sess.Step("Writing Conventional Commit", func() error {
+	if err := prog.Step("Writing Conventional Commit", func() error {
 		if opts.DryRun {
-			sess.Detail("git commit -m " + quoteMessage(message))
+			prog.Detail("git commit -m " + quoteMessage(message))
 			return nil
 		}
 		return repo.Commit(message)
@@ -360,28 +457,45 @@ func commitFlow(ctx context.Context, opts Options, sess *ui.Session) (*Result, a
 		return nil, nil, err
 	}
 
+	if opts.CachedCommitMessage != "" {
+		return result, nil, nil
+	}
 	return result, provider, nil
 }
 
-func commitStaged(ctx context.Context, cfg *config.Config, repo *gitpkg.Repo, opts Options, provider ai.Provider, sess *ui.Session) (*Result, error) {
-	diff, err := repo.DiffStaged()
-	if err != nil {
-		return nil, err
-	}
-
+func commitStaged(ctx context.Context, cfg *config.Config, repo *gitpkg.Repo, opts Options, provider ai.Provider, prog Progress) (*Result, error) {
 	var suggestion *ai.CommitSuggestion
-	sess.Detail(ai.DescribePreparedInput(cfg, diff, "commit"))
-	if err := sess.Step("Thinking", func() error {
-		suggestion, err = provider.SuggestCommit(ctx, diff, cfg.Language)
-		return err
-	}); err != nil {
-		return nil, err
-	}
-	if line := ai.FormatLatestUsage(provider.UsageStats()); line != "" {
-		sess.Detail(line)
+	var message string
+
+	if opts.CachedCommitMessage != "" {
+		message = opts.CachedCommitMessage
+	} else {
+		if provider == nil {
+			var err error
+			provider, err = ai.New(cfg)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		diff, err := repo.DiffStaged()
+		if err != nil {
+			return nil, err
+		}
+
+		prog.Detail(ai.DescribePreparedInput(cfg, diff, "commit"))
+		if err := prog.Step("Thinking", func() error {
+			suggestion, err = provider.SuggestCommit(ctx, diff, cfg.Language)
+			return err
+		}); err != nil {
+			return nil, err
+		}
+		if line := ai.FormatLatestUsage(provider.UsageStats()); line != "" {
+			prog.Detail(line)
+		}
+		message = formatter.FormatCommit(suggestion, cfg.CoAuthor)
 	}
 
-	message := formatter.FormatCommit(suggestion, cfg.CoAuthor)
 	result := &Result{
 		Suggestion: suggestion,
 		Message:    message,
@@ -391,9 +505,9 @@ func commitStaged(ctx context.Context, cfg *config.Config, repo *gitpkg.Repo, op
 		printCommitVerbose(suggestion, message)
 	}
 
-	if err := sess.Step("Writing Conventional Commit", func() error {
+	if err := prog.Step("Writing Conventional Commit", func() error {
 		if opts.DryRun {
-			sess.Detail("git commit -m " + quoteMessage(message))
+			prog.Detail("git commit -m " + quoteMessage(message))
 			return nil
 		}
 		return repo.Commit(message)

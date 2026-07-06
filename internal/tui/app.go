@@ -16,6 +16,12 @@ type snapshotMsg struct {
 	err  error
 }
 
+type diffLoadedMsg struct {
+	title string
+	diff  string
+	err   error
+}
+
 type appModel struct {
 	screen   Screen
 	snapshot *app.WorkspaceSnapshot
@@ -24,6 +30,8 @@ type appModel struct {
 	loading  bool
 	err      error
 	status   string
+	diff     diffModel
+	action   *actionState
 }
 
 func newApp() appModel {
@@ -31,6 +39,7 @@ func newApp() appModel {
 		screen:  ScreenDashboard,
 		loading: true,
 		status:  "Carregando repositório…",
+		diff:    newDiffModel(),
 	}
 }
 
@@ -43,11 +52,21 @@ func loadSnapshot() tea.Msg {
 	return snapshotMsg{snap: snap, err: err}
 }
 
+func loadDiffCmd(snap *app.WorkspaceSnapshot) tea.Cmd {
+	return func() tea.Msg {
+		title, diff, err := app.LoadDiff(snap)
+		return diffLoadedMsg{title: title, diff: diff, err: err}
+	}
+}
+
 func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		if m.screen == ScreenDiff {
+			m.diff.SetSize(m.width, m.height)
+		}
 		return m, nil
 
 	case snapshotMsg:
@@ -61,7 +80,65 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case diffLoadedMsg:
+		m.diff.Load(msg.title, msg.diff, msg.err)
+		m.diff.SetSize(m.width, m.height)
+		if msg.err != nil {
+			m.status = msg.err.Error()
+		}
+		return m, nil
+
+	case actionPreviewMsg:
+		if m.action != nil {
+			m.action.handlePreview(msg)
+		}
+		return m, nil
+
+	case actionConfirmMsg:
+		if m.action != nil {
+			m.action.handleConfirm(msg)
+		}
+		return m, nil
+
+	case actionSimpleMsg:
+		if m.action != nil {
+			m.action.handleSimple(msg)
+		}
+		return m, nil
+
 	case tea.KeyMsg:
+		if key, ok := parseGlobalKey(msg); ok && m.screen == ScreenDashboard && m.action == nil {
+			switch key {
+			case keyQuit:
+				return m, tea.Quit
+			case keyRefresh:
+				m.loading = true
+				m.status = "Atualizando…"
+				return m, loadSnapshot
+			}
+		}
+
+		switch m.screen {
+		case ScreenDashboard:
+			return m.updateDashboard(msg)
+		case ScreenDiff:
+			return m.updateDiff(msg)
+		case ScreenAction:
+			return m.updateAction(msg)
+		}
+	}
+
+	if m.screen == ScreenDiff {
+		var cmd tea.Cmd
+		m.diff, cmd = m.diff.Update(msg)
+		return m, cmd
+	}
+
+	return m, nil
+}
+
+func (m appModel) updateDashboard(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.loading || m.err != nil {
 		if key, ok := parseGlobalKey(msg); ok {
 			switch key {
 			case keyQuit:
@@ -72,9 +149,115 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, loadSnapshot
 			}
 		}
+		return m, nil
+	}
+
+	if key, ok := parseGlobalKey(msg); ok {
+		switch key {
+		case keyQuit:
+			return m, tea.Quit
+		case keyRefresh:
+			m.loading = true
+			m.status = "Atualizando…"
+			return m, loadSnapshot
+		}
+	}
+
+	if dashKey, ok := parseDashboardKey(msg, m.snapshot); ok {
+		switch dashKey {
+		case dashKeyDiff:
+			m.screen = ScreenDiff
+			m.status = "Diff"
+			return m, loadDiffCmd(m.snapshot)
+		case dashKeyCommit:
+			m.screen = ScreenAction
+			m.action = newActionState(ActionCommit)
+			m.status = "Commit"
+			return m, m.action.previewCmd()
+		case dashKeyPush:
+			m.screen = ScreenAction
+			m.action = newActionState(ActionPush)
+			m.status = "Push"
+			return m, m.action.directCmd()
+		case dashKeyPR:
+			m.screen = ScreenAction
+			m.action = newActionState(ActionPR)
+			m.status = "PR"
+			return m, m.action.previewCmd()
+		case dashKeySync:
+			m.screen = ScreenAction
+			m.action = newActionState(ActionSync)
+			m.status = "Sync"
+			return m, m.action.directCmd()
+		case dashKeyOpenPR:
+			m.screen = ScreenAction
+			m.action = newActionState(ActionOpenPR)
+			m.status = "Abrindo PR"
+			return m, m.action.directCmd()
+		}
 	}
 
 	return m, nil
+}
+
+func (m appModel) updateDiff(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc", "q":
+		m.screen = ScreenDashboard
+		m.status = "Pronto"
+		return m, nil
+	}
+	var cmd tea.Cmd
+	m.diff, cmd = m.diff.Update(msg)
+	return m, cmd
+}
+
+func (m appModel) updateAction(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.action == nil {
+		m.screen = ScreenDashboard
+		return m, nil
+	}
+
+	switch m.action.phase {
+	case PhaseConfirm:
+		switch msg.String() {
+		case "esc":
+			return m.closeAction(), nil
+		case "enter":
+			m.action.phase = PhaseConfirming
+			return m, m.action.confirmCmd()
+		case "d":
+			if m.action.kind == ActionPR {
+				m.action.toggleDraft()
+			}
+		}
+
+	case PhaseConfirming:
+		// aguarda mensagem async
+
+	case PhaseDone, PhaseError:
+		switch msg.String() {
+		case "enter", "esc", "q":
+			return m.closeActionAndRefresh(), loadSnapshot
+		}
+	}
+
+	return m, nil
+}
+
+func (m appModel) closeAction() tea.Model {
+	m.screen = ScreenDashboard
+	m.action = nil
+	m.status = "Pronto"
+	return m
+}
+
+func (m appModel) closeActionAndRefresh() tea.Model {
+	m.screen = ScreenDashboard
+	m.action = nil
+	m.loading = true
+	m.status = "Atualizando…"
+	return m
 }
 
 func (m appModel) View() string {
@@ -89,22 +272,36 @@ func (m appModel) View() string {
 	b.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, title, " ", styleHeader.Render("|"), " ", ver))
 	b.WriteString("\n")
 
-	if m.loading {
-		b.WriteString("\n")
-		b.WriteString(styleHint.Render("  " + m.status))
-		b.WriteString(renderStatusBar(m.width, m.status, helpLine()))
-		return b.String()
+	help := dashboardHelpLine()
+
+	switch m.screen {
+	case ScreenDiff:
+		b.WriteString(m.diff.View(m.width))
+		help = diffHelpLine()
+	case ScreenAction:
+		if m.action != nil {
+			b.WriteString(m.action.View(m.width))
+			help = actionHelpLine()
+			if m.action.phase == PhaseConfirm {
+				help = actionConfirmHelp(m.action)
+			}
+			if m.action.phase == PhaseDone || m.action.phase == PhaseError {
+				help = styleKey.Render("enter") + " voltar"
+			}
+		}
+	default:
+		if m.loading {
+			b.WriteString("\n")
+			b.WriteString(styleHint.Render("  " + m.status))
+		} else if m.err != nil {
+			b.WriteString("\n")
+			b.WriteString(styleError.Render("  ✗ " + m.err.Error()))
+		} else {
+			b.WriteString(renderDashboard(m.snapshot))
+		}
 	}
 
-	if m.err != nil {
-		b.WriteString("\n")
-		b.WriteString(styleError.Render("  ✗ " + m.err.Error()))
-		b.WriteString(renderStatusBar(m.width, "erro", helpLine()))
-		return b.String()
-	}
-
-	b.WriteString(renderDashboard(m.snapshot))
-	b.WriteString(renderStatusBar(m.width, m.status, helpLine()))
+	b.WriteString(renderStatusBar(m.width, m.status, help))
 	return b.String()
 }
 

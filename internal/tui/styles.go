@@ -42,7 +42,8 @@ var (
 			Foreground(colorMagenta).
 			Bold(true)
 
-	styleModified = lipgloss.NewStyle().Foreground(colorMagenta)
-	styleNew      = lipgloss.NewStyle().Foreground(colorGreen)
+	styleModified  = lipgloss.NewStyle().Foreground(colorMagenta)
+	styleNew       = lipgloss.NewStyle().Foreground(colorGreen)
 	styleUntracked = lipgloss.NewStyle().Foreground(colorYellow)
+	styleYellow    = lipgloss.NewStyle().Foreground(colorYellow)
 )

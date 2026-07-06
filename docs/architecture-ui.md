@@ -240,10 +240,10 @@ Detecção de terminal: `term.IsTerminal` + `GITAI_NO_UI` + `CI` — mesma lógi
 
 ### Fase 2 — Ações
 
-- [ ] Interface `Progress` + adapter TUI
-- [ ] Modal de commit (preview mensagem IA → confirmar)
-- [ ] Modal de PR (preview body → draft toggle → criar)
-- [ ] Diff viewer com `bubbles/viewport`
+- [x] Interface `Progress` + adapter TUI
+- [x] Modal de commit (preview mensagem IA → confirmar)
+- [x] Modal de PR (preview body → draft toggle → criar)
+- [x] Diff viewer com `bubbles/viewport`
 
 ### Fase 3 — Polish
 
