@@ -91,7 +91,7 @@ func (s *Session) Info(label string) {
 }
 
 func (s *Session) Success(message string) {
-	fmt.Fprintf(s.out, "\n%s %s\n", s.paint("✓", green), s.paint(message, green))
+	fmt.Fprintf(s.out, "\n%s %s\n\n", s.paint("✓", green), s.paint(message, green))
 }
 
 func (s *Session) Detail(message string) {
@@ -194,9 +194,13 @@ func (s *Session) spinner(label string) func() {
 	}
 
 	done := make(chan struct{})
+	cleared := make(chan struct{})
 	var once sync.Once
 	stop := func() {
-		once.Do(func() { close(done) })
+		once.Do(func() {
+			close(done)
+			<-cleared
+		})
 	}
 
 	frames := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
@@ -207,11 +211,12 @@ func (s *Session) spinner(label string) func() {
 		for {
 			select {
 			case <-done:
-				fmt.Fprint(os.Stderr, "\r\033[K")
+				fmt.Fprint(s.out, "\r\033[K")
+				close(cleared)
 				return
 			case <-ticker.C:
 				frame := s.paint(frames[i%len(frames)], cyan)
-				fmt.Fprintf(os.Stderr, "\r  %s %s", frame, s.paint(label+"...", yellow))
+				fmt.Fprintf(s.out, "\r  %s %s", frame, s.paint(label+"...", yellow))
 				i++
 			}
 		}
@@ -221,11 +226,11 @@ func (s *Session) spinner(label string) func() {
 }
 
 func (s *Session) doneLine(label string) {
-	fmt.Fprintf(os.Stderr, "  %s %s\n", s.paint("✓", green), s.paint(label, dim))
+	fmt.Fprintf(s.out, "  %s %s\n", s.paint("✓", green), s.paint(label, dim))
 }
 
 func (s *Session) failLine(label string) {
-	fmt.Fprintf(os.Stderr, "  %s %s\n", s.paint("✗", red), s.paint(label, red))
+	fmt.Fprintf(s.out, "  %s %s\n", s.paint("✗", red), s.paint(label, red))
 }
 
 func (s *Session) paint(text, code string) string {
