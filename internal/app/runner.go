@@ -98,9 +98,39 @@ func RunCommit(ctx context.Context, opts Options) (*Result, error) {
 }
 
 func RunPush(ctx context.Context, opts Options) (*Result, error) {
-	result, err := RunCommit(ctx, opts)
+	repo, err := gitpkg.New()
 	if err != nil {
 		return nil, err
+	}
+	if err := repo.IsRepo(); err != nil {
+		return nil, fmt.Errorf("diretório atual não é um repositório git")
+	}
+
+	if !opts.NoAdd {
+		if opts.DryRun {
+			fmt.Println("[dry-run] git add .")
+		} else if err := repo.AddAll(); err != nil {
+			return nil, err
+		}
+	}
+
+	var result *Result
+
+	diff, err := repo.DiffForCommit()
+	if err != nil {
+		return nil, err
+	}
+
+	if diff != "" {
+		pushOpts := opts
+		pushOpts.NoAdd = true
+		result, err = RunCommit(ctx, pushOpts)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		fmt.Println("Nenhuma alteração pendente; enviando commits existentes")
+		result = &Result{}
 	}
 
 	if opts.DryRun {
@@ -108,10 +138,6 @@ func RunPush(ctx context.Context, opts Options) (*Result, error) {
 		return result, nil
 	}
 
-	repo, err := gitpkg.New()
-	if err != nil {
-		return nil, err
-	}
 	if err := repo.Push(); err != nil {
 		return nil, err
 	}
