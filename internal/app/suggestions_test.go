@@ -14,10 +14,10 @@ func overview() *gitpkg.Overview {
 	}
 }
 
-func stepCommands(steps []nextStep) []string {
+func stepCommands(steps []NextStep) []string {
 	out := make([]string, len(steps))
 	for i, s := range steps {
-		out[i] = s.command
+		out[i] = s.Command
 	}
 	return out
 }
@@ -32,7 +32,7 @@ func TestBuildNextSteps_dirtyWithUpstream(t *testing.T) {
 	if len(cmds) != 1 || cmds[0] != "gitai push" {
 		t.Fatalf("commands = %v, want [gitai push]", cmds)
 	}
-	if steps[0].note == "" {
+	if steps[0].Note == "" {
 		t.Fatal("expected commit note on gitai push")
 	}
 }
@@ -43,7 +43,7 @@ func TestBuildNextSteps_dirtyWithoutUpstream(t *testing.T) {
 	o.Modified = 1
 
 	steps := buildNextSteps(o, nil, true)
-	if len(steps) != 1 || steps[0].command != "gitai commit" {
+	if len(steps) != 1 || steps[0].Command != "gitai commit" {
 		t.Fatalf("steps = %+v, want gitai commit only", steps)
 	}
 }
@@ -56,10 +56,10 @@ func TestBuildNextSteps_cleanAheadOfRemote(t *testing.T) {
 	if len(steps) != 2 {
 		t.Fatalf("len = %d, want 2", len(steps))
 	}
-	if steps[0].command != "gitai push" || steps[0].note != "" {
+	if steps[0].Command != "gitai push" || steps[0].Note != "" {
 		t.Fatalf("first step = %+v, want gitai push without note", steps[0])
 	}
-	if steps[1].command != "gitai pr" {
+	if steps[1].Command != "gitai pr" {
 		t.Fatalf("second step = %+v, want gitai pr", steps[1])
 	}
 }
@@ -89,7 +89,7 @@ func TestBuildNextSteps_dirtyWithExistingPR(t *testing.T) {
 
 func TestBuildNextSteps_notConfigured(t *testing.T) {
 	steps := buildNextSteps(overview(), nil, false)
-	if steps[0].command != "gitai config" {
-		t.Fatalf("first step = %q, want gitai config", steps[0].command)
+	if steps[0].Command != "gitai config" {
+		t.Fatalf("first step = %q, want gitai config", steps[0].Command)
 	}
 }

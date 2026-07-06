@@ -2,11 +2,9 @@ package app
 
 import (
 	"fmt"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
-	"github.com/laerciocrestani/gitai/internal/config"
 	gitpkg "github.com/laerciocrestani/gitai/internal/git"
 	prpkg "github.com/laerciocrestani/gitai/internal/pr"
 	"github.com/laerciocrestani/gitai/internal/ui"
@@ -16,51 +14,25 @@ func RunOverview() error {
 	sess := ui.New("overview", false)
 	sess.Header()
 
-	repo, err := gitpkg.New()
-	if err != nil {
-		return err
-	}
-	if err := repo.IsRepo(); err != nil {
-		return fmt.Errorf("diretório atual não é um repositório git")
-	}
-
-	baseBranch := "main"
-	if cfg, err := config.Load(); err == nil {
-		baseBranch = cfg.BaseBranch
-	}
-
-	var overview *gitpkg.Overview
-	var openPR *prpkg.PRView
-
+	var snap *WorkspaceSnapshot
 	if err := sess.StepQuiet(func() error {
 		var err error
-		overview, err = repo.Overview(baseBranch)
+		snap, err = LoadWorkspaceSnapshot()
 		return err
 	}); err != nil {
 		return err
 	}
 
-	if hasGH() {
-		_ = sess.StepQuiet(func() error {
-			client, err := prpkg.New()
-			if err != nil {
-				return nil
-			}
-			openPR, err = client.ViewCurrent()
-			return nil
-		})
-	}
-
-	printGitAiConfig(sess)
-	printRecentCommits(sess, overview)
-	printBranches(sess, overview)
-	printChangedFiles(sess, overview)
-	printStash(sess, overview)
+	printGitAiConfig(sess, snap)
+	printRecentCommits(sess, snap.Overview)
+	printBranches(sess, snap.Overview)
+	printChangedFiles(sess, snap.Overview)
+	printStash(sess, snap.Overview)
 
 	sess.Divider()
-	printRepoMeta(sess, overview, openPR)
+	printRepoMeta(sess, snap.Overview, snap.OpenPR)
 	sess.Divider()
-	printSuggestions(sess, overview, openPR)
+	printSuggestions(sess, snap)
 	sess.Footer()
 	return nil
 }
@@ -157,13 +129,13 @@ func printStash(sess *ui.Session, o *gitpkg.Overview) {
 	}
 }
 
-func printGitAiConfig(sess *ui.Session) {
+func printGitAiConfig(sess *ui.Session, snap *WorkspaceSnapshot) {
 	sess.SectionFirst("GitAi config")
-	cfg, err := config.Load()
-	if err != nil {
+	if snap.ConfigErr != nil {
 		sess.Detail("not configured — run: gitai config")
 		return
 	}
+	cfg := snap.Config
 	parts := []string{
 		fmt.Sprintf("Provider: %s", cfg.Provider),
 		fmt.Sprintf("Model: %s", cfg.Model),
@@ -174,23 +146,20 @@ func printGitAiConfig(sess *ui.Session) {
 	sess.Detail(strings.Join(parts, " · "))
 }
 
-func printSuggestions(sess *ui.Session, o *gitpkg.Overview, pr *prpkg.PRView) {
-	_, err := config.Load()
-	steps := buildNextSteps(o, pr, err == nil)
-
+func printSuggestions(sess *ui.Session, snap *WorkspaceSnapshot) {
 	sess.Section("Next steps")
-	for _, step := range steps {
+	for _, step := range snap.NextSteps {
 		switch {
-		case step.plain:
-			sess.Bullet(step.command)
-		case step.note != "":
-			sess.CommandHintWithNote(step.command, step.note)
+		case step.Plain:
+			sess.Bullet(step.Command)
+		case step.Note != "":
+			sess.CommandHintWithNote(step.Command, step.Note)
 		default:
-			sess.CommandHint(step.command)
+			sess.CommandHint(step.Command)
 		}
 	}
 
-	if hasGH() {
+	if snap.HasGH {
 		return
 	}
 	sess.Detail("install gh for PR info — https://cli.github.com/")
@@ -233,7 +202,3 @@ func syncLabel(ahead, behind int) string {
 	}
 }
 
-func hasGH() bool {
-	_, err := exec.LookPath("gh")
-	return err == nil
-}

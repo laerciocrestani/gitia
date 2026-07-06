@@ -8,6 +8,7 @@ import (
 	"github.com/laerciocrestani/gitai/internal/config"
 	gitpkg "github.com/laerciocrestani/gitai/internal/git"
 	"github.com/laerciocrestani/gitai/internal/setup"
+	"github.com/laerciocrestani/gitai/internal/tui"
 	"github.com/laerciocrestani/gitai/internal/ui"
 	"github.com/spf13/cobra"
 )
@@ -230,7 +231,16 @@ func main() {
 	reportCmd.Flags().BoolVar(&reportMonth, "month", false, "mês atual (calendário)")
 	reportCmd.Flags().BoolVar(&reportAll, "all", false, "todo o histórico")
 
-	root.AddCommand(installCmd, updateCmd, syncCmd, versionCmd, statusCmd, commitCmd, pushCmd, prCmd, configCmd, pricingCmd, reportCmd)
+	uiCmd := &cobra.Command{
+		Use:   "ui",
+		Short: "Interface interativa no terminal (TUI)",
+		Long:  "Abre o dashboard fullscreen com branches, arquivos alterados e próximos passos.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return tui.Run()
+		},
+	}
+
+	root.AddCommand(installCmd, updateCmd, syncCmd, versionCmd, statusCmd, commitCmd, pushCmd, prCmd, configCmd, pricingCmd, reportCmd, uiCmd)
 
 	if err := root.Execute(); err != nil {
 		os.Exit(1)

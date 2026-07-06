@@ -1,0 +1,280 @@
+package tui
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/laerciocrestani/gitai/internal/app"
+	gitpkg "github.com/laerciocrestani/gitai/internal/git"
+	"github.com/laerciocrestani/gitai/internal/ui"
+)
+
+type snapshotMsg struct {
+	snap *app.WorkspaceSnapshot
+	err  error
+}
+
+type appModel struct {
+	screen   Screen
+	snapshot *app.WorkspaceSnapshot
+	width    int
+	height   int
+	loading  bool
+	err      error
+	status   string
+}
+
+func newApp() appModel {
+	return appModel{
+		screen:  ScreenDashboard,
+		loading: true,
+		status:  "Carregando repositório…",
+	}
+}
+
+func (m appModel) Init() tea.Cmd {
+	return loadSnapshot
+}
+
+func loadSnapshot() tea.Msg {
+	snap, err := app.LoadWorkspaceSnapshot()
+	return snapshotMsg{snap: snap, err: err}
+}
+
+func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+		return m, nil
+
+	case snapshotMsg:
+		m.loading = false
+		m.snapshot = msg.snap
+		m.err = msg.err
+		if msg.err != nil {
+			m.status = msg.err.Error()
+		} else {
+			m.status = "Pronto"
+		}
+		return m, nil
+
+	case tea.KeyMsg:
+		if key, ok := parseGlobalKey(msg); ok {
+			switch key {
+			case keyQuit:
+				return m, tea.Quit
+			case keyRefresh:
+				m.loading = true
+				m.status = "Atualizando…"
+				return m, loadSnapshot
+			}
+		}
+	}
+
+	return m, nil
+}
+
+func (m appModel) View() string {
+	if m.width == 0 {
+		return "Iniciando…"
+	}
+
+	var b strings.Builder
+
+	title := styleTitle.Render("🤖 GitAi")
+	ver := styleHeader.Render(ui.Version())
+	b.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, title, " ", styleHeader.Render("|"), " ", ver))
+	b.WriteString("\n")
+
+	if m.loading {
+		b.WriteString("\n")
+		b.WriteString(styleHint.Render("  " + m.status))
+		b.WriteString(renderStatusBar(m.width, m.status, helpLine()))
+		return b.String()
+	}
+
+	if m.err != nil {
+		b.WriteString("\n")
+		b.WriteString(styleError.Render("  ✗ " + m.err.Error()))
+		b.WriteString(renderStatusBar(m.width, "erro", helpLine()))
+		return b.String()
+	}
+
+	b.WriteString(renderDashboard(m.snapshot))
+	b.WriteString(renderStatusBar(m.width, m.status, helpLine()))
+	return b.String()
+}
+
+func renderDashboard(snap *app.WorkspaceSnapshot) string {
+	if snap == nil || snap.Overview == nil {
+		return ""
+	}
+	o := snap.Overview
+	var b strings.Builder
+
+	b.WriteString("\n")
+	b.WriteString(styleHeader.Render(fmt.Sprintf("  %s · %s", repoName(o), branchLabel(o))))
+	if o.Upstream != "" {
+		b.WriteString(styleHeader.Render(fmt.Sprintf(" · %s", syncLabel(o.Ahead, o.Behind))))
+	}
+	b.WriteString("\n")
+
+	if snap.ConfigErr != nil {
+		b.WriteString(styleHint.Render("  Config: não configurado — gitai config\n"))
+	} else if snap.Config != nil {
+		b.WriteString(styleHint.Render(fmt.Sprintf("  Provider: %s · Model: %s\n", snap.Config.Provider, snap.Config.Model)))
+	}
+
+	if snap.OpenPR != nil {
+		pr := snap.OpenPR
+		state := strings.ToLower(pr.State)
+		if pr.IsDraft {
+			state = "draft"
+		}
+		b.WriteString(styleHint.Render(fmt.Sprintf("  PR #%d %s (%s)\n", pr.Number, truncate(pr.Title, 50), state)))
+	}
+
+	b.WriteString(styleSection.Render("Branches"))
+	b.WriteString("\n")
+	limit := min(len(o.Branches), 8)
+	for _, br := range o.Branches[:limit] {
+		marker := " "
+		name := br.Name
+		if br.Current {
+			marker = styleCurrent.Render("*")
+			name = styleCurrent.Render(name)
+		}
+		line := fmt.Sprintf("  %s %s", marker, name)
+		if br.Upstream != "" && (br.Ahead > 0 || br.Behind > 0) {
+			line += styleHint.Render(fmt.Sprintf(" (↑%d ↓%d)", br.Ahead, br.Behind))
+		}
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+
+	if len(o.FileChanges) > 0 {
+		b.WriteString(styleSection.Render("Changed files"))
+		b.WriteString("\n")
+		fileLimit := min(len(o.FileChanges), 12)
+		for _, f := range o.FileChanges[:fileLimit] {
+			tag := fileStatusStyle(f.Status).Render(statusTag(f.Status))
+			stats := ""
+			if f.Insertions > 0 || f.Deletions > 0 {
+				stats = styleHint.Render(fmt.Sprintf(" +%d -%d", f.Insertions, f.Deletions))
+			}
+			b.WriteString(fmt.Sprintf("  %s %s%s\n", tag, f.Path, stats))
+		}
+	}
+
+	if len(o.RecentCommits) > 0 {
+		b.WriteString(styleSection.Render("Recent commits"))
+		b.WriteString("\n")
+		for _, c := range o.RecentCommits {
+			b.WriteString(styleHint.Render("  " + c))
+			b.WriteString("\n")
+		}
+	}
+
+	b.WriteString(styleSection.Render("Next steps"))
+	b.WriteString("\n")
+	for _, step := range snap.NextSteps {
+		if step.Plain {
+			b.WriteString(styleHint.Render("  • " + step.Command))
+		} else if step.Note != "" {
+			b.WriteString(fmt.Sprintf("  → %s %s\n", styleKey.Render(step.Command), styleHint.Render(step.Note)))
+		} else {
+			b.WriteString(fmt.Sprintf("  → %s\n", styleKey.Render(step.Command)))
+		}
+	}
+
+	return b.String()
+}
+
+func renderStatusBar(width int, left, right string) string {
+	gap := width - lipgloss.Width(left) - lipgloss.Width(right) - 2
+	if gap < 1 {
+		gap = 1
+	}
+	line := left + strings.Repeat(" ", gap) + right
+	return "\n" + styleStatusBar.Width(width).Render(line)
+}
+
+func repoName(o *gitpkg.Overview) string {
+	if o == nil {
+		return ""
+	}
+	if o.RemoteURL != "" {
+		name := o.RemoteURL
+		name = strings.TrimSuffix(name, ".git")
+		if i := strings.LastIndex(name, "/"); i >= 0 {
+			name = name[i+1:]
+		}
+		if i := strings.LastIndex(name, ":"); i >= 0 {
+			name = name[i+1:]
+		}
+		if name != "" {
+			return name
+		}
+	}
+	return o.Root
+}
+
+func branchLabel(o *gitpkg.Overview) string {
+	if o.Detached {
+		return "detached HEAD"
+	}
+	return o.Branch
+}
+
+func syncLabel(ahead, behind int) string {
+	switch {
+	case ahead > 0 && behind > 0:
+		return fmt.Sprintf("↑%d ↓%d", ahead, behind)
+	case ahead > 0:
+		return fmt.Sprintf("↑%d ahead", ahead)
+	case behind > 0:
+		return fmt.Sprintf("↓%d behind", behind)
+	default:
+		return "in sync"
+	}
+}
+
+func statusTag(status string) string {
+	switch status {
+	case "untracked":
+		return "?"
+	case "deleted":
+		return "D"
+	case "new", "staged":
+		return "A"
+	case "modified", "staged+modified":
+		return "M"
+	default:
+		return "·"
+	}
+}
+
+func fileStatusStyle(status string) lipgloss.Style {
+	switch status {
+	case "untracked":
+		return styleUntracked
+	case "deleted":
+		return styleError
+	case "new", "staged":
+		return styleNew
+	case "modified", "staged+modified":
+		return styleModified
+	default:
+		return styleHint
+	}
+}
+
+func truncate(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	return s[:max-1] + "…"
+}
