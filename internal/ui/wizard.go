@@ -65,7 +65,7 @@ func (w *Wizard) Record(label, value string) {
 		value:   value,
 	})
 	if w.interactive {
-		w.redraw(nil)
+		w.redraw(nil, false)
 	}
 }
 
@@ -136,7 +136,7 @@ func (w *Wizard) Ask(reader *bufio.Reader, label, hint string) (string, error) {
 // Finish redesenha o estado final sem prompt ativo.
 func (w *Wizard) Finish() {
 	if w.interactive {
-		w.redraw(nil)
+		w.redraw(nil, false)
 	}
 }
 
@@ -163,7 +163,7 @@ func (w *Wizard) selectInteractive(label string, options []string, start int) (i
 		cursor:  cursor,
 	}
 
-	w.redraw(state)
+	w.redraw(state, true)
 	defer fmt.Fprint(w.sess.out, "\033[?25h")
 
 	for {
@@ -192,7 +192,7 @@ func (w *Wizard) selectInteractive(label string, options []string, start int) (i
 			cursor = len(options) - 1
 		}
 		state.cursor = cursor
-		w.redraw(state)
+		w.redraw(state, true)
 	}
 }
 
@@ -202,7 +202,7 @@ func (w *Wizard) selectFallback(reader *bufio.Reader, cfg SelectConfig, options 
 		label:   cfg.Label,
 		options: options,
 		cursor:  defaultIdx,
-	})
+	}, false)
 	fmt.Fprintf(w.sess.out, "\n%s", w.sess.paint("Escolha [número ou Enter para padrão]: ", dim))
 	input, err := reader.ReadString('\n')
 	if err != nil {
@@ -236,11 +236,15 @@ func (w *Wizard) selectFallback(reader *bufio.Reader, cfg SelectConfig, options 
 	return selected, nil
 }
 
-func (w *Wizard) redraw(active *selectState) {
+func (w *Wizard) redraw(active *selectState, raw bool) {
 	if w.interactive {
 		fmt.Fprint(w.sess.out, "\033[H\033[2J\033[?25l")
 	}
-	fmt.Fprint(w.sess.out, w.buildFrame(active, "", ""))
+	frame := w.buildFrame(active, "", "")
+	if raw {
+		frame = strings.ReplaceAll(frame, "\n", "\r\n")
+	}
+	fmt.Fprint(w.sess.out, frame)
 }
 
 func (w *Wizard) redrawWithInput(label, hint, prompt string) {
