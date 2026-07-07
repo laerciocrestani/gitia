@@ -11,8 +11,14 @@ func TestWriteBannerContainsTitleAndVersion(t *testing.T) {
 	writeBanner(&buf, false, nil, func(text, _ string) string { return text })
 
 	out := buf.String()
-	if !strings.Contains(out, "┏━┓") {
+	if !strings.Contains(out, "┏━━┓") {
 		t.Fatalf("banner missing title: %q", out)
+	}
+	if !strings.Contains(out, "●────●") {
+		t.Fatalf("banner missing git graph: %q", out)
+	}
+	if idx := strings.Index(out, "┏━━┓"); idx < 0 || idx > strings.Index(out, "●────●") {
+		t.Fatalf("title should appear before graph: %q", out)
 	}
 	if !strings.Contains(out, "AI-powered Git Workflow") {
 		t.Fatalf("banner missing tagline: %q", out)
@@ -43,15 +49,16 @@ func TestWriteBannerContext(t *testing.T) {
 }
 
 func TestBannerTitleStyleFade(t *testing.T) {
+	total := len(joinBannerArt(bannerTitle, bannerGraph, bannerArtGap))
 	first := bannerTitleStyle(0)
-	last := bannerTitleStyle(len(bannerTitle) - 1)
+	last := bannerTitleStyle(total - 1)
 	if first == last {
 		t.Fatal("first and last title lines should use different fade colors")
 	}
 	if !strings.Contains(last, ";0;0m") {
 		t.Fatalf("last line should fade to transparent (0,0), got %q", last)
 	}
-	for i := 0; i < len(bannerTitle); i++ {
+	for i := 0; i < total; i++ {
 		if bannerTitleStyle(i) == "" {
 			t.Fatalf("line %d has empty style", i)
 		}

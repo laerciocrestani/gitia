@@ -4,7 +4,17 @@ import (
 	"fmt"
 	"io"
 	"strings"
+
+	"github.com/mattn/go-runewidth"
 )
+
+var bannerGraph = []string{
+	"  ●────●",
+	"   ╱ ╲ ╱",
+	"  ●   ●─●",
+	"   ╲ ╱  │",
+	"    ●───●",
+}
 
 var bannerTitle = []string{
 	"  ┏━┓┳┏┳┓┏━┓┳",
@@ -14,6 +24,7 @@ var bannerTitle = []string{
 }
 
 const bannerMetaIndent = "  "
+const bannerArtGap = 3
 
 // BannerContext holds optional status lines shown below the banner art.
 type BannerContext struct {
@@ -25,8 +36,9 @@ type BannerContext struct {
 }
 
 func writeBanner(out io.Writer, dryRun bool, ctx *BannerContext, paint func(string, string) string) {
-	for i, line := range bannerTitle {
-		fmt.Fprintln(out, paint(line, bannerTitleStyle(i)))
+	lines := joinBannerArt(bannerTitle, bannerGraph, bannerArtGap)
+	for i, line := range lines {
+		fmt.Fprintln(out, paint(line, bannerLineStyle(i, len(lines))))
 	}
 
 	tagline := "AI-powered Git Workflow · " + Version()
@@ -50,6 +62,43 @@ func writeBanner(out io.Writer, dryRun bool, ctx *BannerContext, paint func(stri
 	fmt.Fprintln(out)
 }
 
+func joinBannerArt(left, right []string, gap int) []string {
+	height := len(left)
+	if len(right) > height {
+		height = len(right)
+	}
+	leftWidth := maxLineWidth(left)
+	gapStr := strings.Repeat(" ", gap)
+	var out []string
+	for i := 0; i < height; i++ {
+		l := ""
+		if i < len(left) {
+			l = left[i]
+		}
+		r := ""
+		if i < len(right) {
+			r = right[i]
+		}
+		pad := strings.Repeat(" ", leftWidth-lineWidth(l))
+		out = append(out, l+pad+gapStr+r)
+	}
+	return out
+}
+
+func maxLineWidth(lines []string) int {
+	width := 0
+	for _, line := range lines {
+		if w := lineWidth(line); w > width {
+			width = w
+		}
+	}
+	return width
+}
+
+func lineWidth(s string) int {
+	return runewidth.StringWidth(s)
+}
+
 // FormatBanner renders the banner as a string for reuse in TUI and other views.
 func FormatBanner(dryRun bool, ctx *BannerContext, colorsEnabled bool) string {
 	var buf strings.Builder
@@ -63,13 +112,19 @@ func FormatBanner(dryRun bool, ctx *BannerContext, colorsEnabled bool) string {
 	return buf.String()
 }
 
-func bannerTitleStyle(line int) string {
-	n := len(bannerTitle)
-	if n <= 1 {
+func bannerLineStyle(line, total int) string {
+	if total <= 1 {
 		return "\033[38;2;0;255;255m"
 	}
-	t := float64(line) / float64(n-1)
+	if line >= total {
+		line = total - 1
+	}
+	t := float64(line) / float64(total-1)
 	g := int(255 * (1 - t))
 	b := int(255 * (1 - t))
 	return fmt.Sprintf("\033[38;2;0;%d;%dm", g, b)
+}
+
+func bannerTitleStyle(line int) string {
+	return bannerLineStyle(line, len(joinBannerArt(bannerTitle, bannerGraph, bannerArtGap)))
 }
