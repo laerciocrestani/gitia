@@ -14,10 +14,10 @@ func TestWriteBannerContainsTitleAndVersion(t *testing.T) {
 	if !strings.Contains(out, "┏━┓") {
 		t.Fatalf("banner missing title: %q", out)
 	}
-	if !strings.Contains(out, "●────●") {
+	if !strings.Contains(out, "●──●") {
 		t.Fatalf("banner missing git graph: %q", out)
 	}
-	if idx := strings.Index(out, "┏━┓"); idx < 0 || idx > strings.Index(out, "●────●") {
+	if idx := strings.Index(out, "┏━┓"); idx < 0 || idx > strings.Index(out, "●──●") {
 		t.Fatalf("title should appear before graph: %q", out)
 	}
 	if !strings.Contains(out, "AI-powered Git Workflow") {
