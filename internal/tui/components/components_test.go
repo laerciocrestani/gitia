@@ -35,18 +35,18 @@ func TestRenderGitGraph(t *testing.T) {
 }
 
 func TestRenderPanelWidthAlignment(t *testing.T) {
-	width := 80
+	width := 120
 	out := components.RenderPanel("Repository Summary", "line one\nline two", width)
 	lines := strings.Split(strings.TrimSuffix(out, "\n"), "\n")
 	if len(lines) < 3 {
 		t.Fatalf("expected at least 3 lines, got %d", len(lines))
 	}
 	title := lines[0]
-	if strings.HasSuffix(title, "╮") {
+	bottom := lines[len(lines)-1]
+	if strings.HasSuffix(ansi.Strip(title), "╮") {
 		t.Fatalf("title should not end with ╮: %q", title)
 	}
-	bottom := lines[len(lines)-1]
-	if strings.HasSuffix(bottom, "╯") {
+	if strings.HasSuffix(ansi.Strip(bottom), "╯") {
 		t.Fatalf("bottom should not end with ╯: %q", bottom)
 	}
 	for i, line := range lines {
@@ -57,6 +57,18 @@ func TestRenderPanelWidthAlignment(t *testing.T) {
 		if got != width {
 			t.Fatalf("line %d width = %d, want %d: %q", i, got, width, line)
 		}
+	}
+
+	titlePlain := ansi.Strip(title)
+	bottomPlain := ansi.Strip(bottom)
+	if !strings.HasSuffix(titlePlain, "─") {
+		t.Fatalf("title gradient should end at right edge: %q", titlePlain)
+	}
+	if !strings.HasSuffix(bottomPlain, "─") {
+		t.Fatalf("bottom gradient should end at right edge: %q", bottomPlain)
+	}
+	if runewidth.StringWidth(titlePlain) != runewidth.StringWidth(bottomPlain) {
+		t.Fatalf("title and bottom should share the same right edge width")
 	}
 }
 

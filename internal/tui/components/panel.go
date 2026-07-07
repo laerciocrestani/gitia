@@ -12,9 +12,8 @@ import (
 )
 
 const (
-	panelDecorSolidEnd       = 10
-	panelDecorFadeEnd        = 30
-	panelBottomGradientWidth = 40
+	panelTopGradientWidth    = 40
+	panelBottomGradientWidth = 100
 )
 
 // RenderPanel renders a titled panel with optional body content.
@@ -39,33 +38,60 @@ func RenderPanel(title, body string, width int) string {
 }
 
 func buildPanelTitleLine(title string, width int) string {
-	line := stylePanelTitle("╭ ") + stylePanelTitle(title) + stylePanelTitle(" ")
-
-	pos := displayWidth(line)
-	for pos < width && pos < panelDecorFadeEnd {
-		if pos >= panelDecorSolidEnd {
-			progress := float64(pos-panelDecorSolidEnd) / float64(panelDecorFadeEnd-panelDecorSolidEnd)
-			line += topGradientDash(progress)
-		} else {
-			line += topGradientDash(0)
-		}
-		pos++
-	}
-
-	return padDisplayWidth(line, width)
+	prefix := stylePanelTitle("╭ ") + stylePanelTitle(title) + stylePanelTitle(" ")
+	gradient := buildGradientBlock(panelTopGradientWidth, topGradientDash)
+	return alignPrefixAndRightBlock(prefix, gradient, width)
 }
 
 func buildPanelBottom(width int) string {
-	line := "╰"
-	gradientLen := panelBottomGradientWidth
-	if gradientLen > width-1 {
-		gradientLen = width - 1
+	gradientWidth := panelBottomGradientWidth
+	if gradientWidth > width {
+		gradientWidth = width
 	}
-	for i := 0; i < gradientLen; i++ {
-		progress := float64(i) / float64(max(gradientLen-1, 1))
-		line += bottomGradientDash(progress)
+	block := "╰" + buildGradientBlock(max(gradientWidth-1, 0), bottomGradientDash)
+	return alignRight(block, width)
+}
+
+func buildGradientBlock(length int, dash func(float64) string) string {
+	if length <= 0 {
+		return ""
 	}
-	return padDisplayWidth(line, width)
+	var b strings.Builder
+	for i := 0; i < length; i++ {
+		progress := float64(i) / float64(max(length-1, 1))
+		b.WriteString(dash(progress))
+	}
+	return b.String()
+}
+
+func alignPrefixAndRightBlock(prefix, block string, width int) string {
+	blockW := displayWidth(block)
+	if blockW > width {
+		return alignRight(ansi.Truncate(block, width, ""), width)
+	}
+
+	maxPrefix := width - blockW
+	if displayWidth(prefix) > maxPrefix {
+		prefix = ansi.Truncate(prefix, maxPrefix, "…")
+	}
+	prefixW := displayWidth(prefix)
+	pad := width - prefixW - blockW
+	if pad < 0 {
+		pad = 0
+	}
+	return prefix + strings.Repeat(" ", pad) + block
+}
+
+func alignRight(block string, width int) string {
+	blockW := displayWidth(block)
+	if blockW > width {
+		return ansi.Truncate(block, width, "")
+	}
+	pad := width - blockW
+	if pad < 0 {
+		pad = 0
+	}
+	return strings.Repeat(" ", pad) + block
 }
 
 func buildBoxLine(content string, inner, width int) string {
