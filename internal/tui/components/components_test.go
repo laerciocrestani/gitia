@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/mattn/go-runewidth"
 	"github.com/laerciocrestani/gitai/internal/app"
 	gitpkg "github.com/laerciocrestani/gitai/internal/git"
@@ -36,13 +37,41 @@ func TestRenderGitGraph(t *testing.T) {
 func TestRenderPanelWidthAlignment(t *testing.T) {
 	width := 80
 	out := components.RenderPanel("Repository Summary", "line one\nline two", width)
-	for i, line := range strings.Split(strings.TrimSuffix(out, "\n"), "\n") {
+	lines := strings.Split(strings.TrimSuffix(out, "\n"), "\n")
+	if len(lines) < 3 {
+		t.Fatalf("expected at least 3 lines, got %d", len(lines))
+	}
+	title := lines[0]
+	if strings.HasSuffix(title, "╮") {
+		t.Fatalf("title should not end with ╮: %q", title)
+	}
+	bottom := lines[len(lines)-1]
+	if strings.HasSuffix(bottom, "╯") {
+		t.Fatalf("bottom should not end with ╯: %q", bottom)
+	}
+	for i, line := range lines {
 		if line == "" {
 			continue
 		}
 		got := runewidth.StringWidth(line)
 		if got != width {
 			t.Fatalf("line %d width = %d, want %d: %q", i, got, width, line)
+		}
+	}
+}
+
+func TestRenderSummaryShowsStats(t *testing.T) {
+	summary := app.ChangeSummary{
+		FileCount:  20,
+		Insertions: 119,
+		Deletions:  214,
+		Languages:  map[string]int{"Go": 5},
+	}
+	out := components.RenderSummary(summary, 80)
+	plain := ansi.Strip(out)
+	for _, want := range []string{"+119", "-214", "Files Changed: 20"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("summary missing %q in:\n%s", want, plain)
 		}
 	}
 }

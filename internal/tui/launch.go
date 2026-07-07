@@ -6,6 +6,9 @@ import (
 	"github.com/laerciocrestani/gitai/internal/uiprefs"
 )
 
+const minWidth = 80
+const minHeight = 24
+
 // ShouldLaunch indica se o comando padrão deve abrir a TUI.
 func ShouldLaunch() bool {
 	if !uiprefs.InteractiveUIEnabled() {
@@ -23,10 +26,5 @@ func isTerminal(f *os.File) bool {
 }
 
 func terminalTooSmall(width, height int) bool {
-	minW, minH := uiprefs.MinTerminalSize()
-	return width < minW || height < minH
-}
-
-func terminalMinSize() (int, int) {
-	return uiprefs.MinTerminalSize()
+	return width < minWidth || height < minHeight
 }

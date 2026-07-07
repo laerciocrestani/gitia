@@ -409,10 +409,9 @@ func (m appModel) View() string {
 	var b strings.Builder
 
 	if terminalTooSmall(m.width, m.height) {
-		minW, minH := terminalMinSize()
 		b.WriteString(styleWarn.Render(fmt.Sprintf(
 			"  Terminal pequeno (%dx%d) — recomendado %dx%d+\n",
-			m.width, m.height, minW, minH,
+			m.width, m.height, minWidth, minHeight,
 		)))
 	}
 
