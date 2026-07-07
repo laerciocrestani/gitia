@@ -22,7 +22,7 @@ func RunOverview() error {
 		return err
 	}
 
-	sess.HeaderWithContext(bannerContext(snap))
+	sess.HeaderWithContext(BuildBannerContext(snap))
 	printRecentCommits(sess, snap.Overview)
 	printBranches(sess, snap.Overview)
 	printChangedFiles(sess, snap.Overview)
@@ -128,7 +128,7 @@ func printStash(sess *ui.Session, o *gitpkg.Overview) {
 	}
 }
 
-func bannerContext(snap *WorkspaceSnapshot) ui.BannerContext {
+func BuildBannerContext(snap *WorkspaceSnapshot) ui.BannerContext {
 	ctx := ui.BannerContext{}
 	if snap.Overview != nil {
 		o := snap.Overview

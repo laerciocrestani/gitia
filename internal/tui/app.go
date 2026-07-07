@@ -7,7 +7,6 @@ import (
 	"github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/laerciocrestani/gitai/internal/app"
-	gitpkg "github.com/laerciocrestani/gitai/internal/git"
 	"github.com/laerciocrestani/gitai/internal/ui"
 )
 
@@ -388,11 +387,12 @@ func (m appModel) View() string {
 		)))
 	}
 
-	tagline := styleHeader.Render("AI-powered Git Workflow · " + ui.Version())
-	b.WriteString(styleTitle.Render("   ██████╗ ██╗████████╗ █████╗ ██╗"))
-	b.WriteString("\n")
-	b.WriteString("  " + tagline)
-	b.WriteString("\n\n")
+	var ctx *ui.BannerContext
+	if m.snapshot != nil {
+		c := app.BuildBannerContext(m.snapshot)
+		ctx = &c
+	}
+	b.WriteString(ui.FormatBanner(false, ctx, !themePlain()))
 
 	help := dashboardHelpLine()
 
@@ -440,19 +440,6 @@ func renderDashboard(snap *app.WorkspaceSnapshot) string {
 	}
 	o := snap.Overview
 	var b strings.Builder
-
-	b.WriteString("\n")
-	b.WriteString(styleHeader.Render(fmt.Sprintf("  %s · %s", repoName(o), branchLabel(o))))
-	if o.Upstream != "" {
-		b.WriteString(styleHeader.Render(fmt.Sprintf(" · %s", syncLabel(o.Ahead, o.Behind))))
-	}
-	b.WriteString("\n")
-
-	if snap.ConfigErr != nil {
-		b.WriteString(styleHint.Render("  Config: não configurado — gitai config\n"))
-	} else if snap.Config != nil {
-		b.WriteString(styleHint.Render(fmt.Sprintf("  Provider: %s · Model: %s\n", snap.Config.Provider, snap.Config.Model)))
-	}
 
 	if snap.OpenPR != nil {
 		pr := snap.OpenPR
@@ -531,46 +518,6 @@ func renderStatusBar(width int, left, right string) string {
 	}
 	line := left + strings.Repeat(" ", gap) + right
 	return "\n" + styleStatusBar.Width(width).Render(line)
-}
-
-func repoName(o *gitpkg.Overview) string {
-	if o == nil {
-		return ""
-	}
-	if o.RemoteURL != "" {
-		name := o.RemoteURL
-		name = strings.TrimSuffix(name, ".git")
-		if i := strings.LastIndex(name, "/"); i >= 0 {
-			name = name[i+1:]
-		}
-		if i := strings.LastIndex(name, ":"); i >= 0 {
-			name = name[i+1:]
-		}
-		if name != "" {
-			return name
-		}
-	}
-	return o.Root
-}
-
-func branchLabel(o *gitpkg.Overview) string {
-	if o.Detached {
-		return "detached HEAD"
-	}
-	return o.Branch
-}
-
-func syncLabel(ahead, behind int) string {
-	switch {
-	case ahead > 0 && behind > 0:
-		return fmt.Sprintf("↑%d ↓%d", ahead, behind)
-	case ahead > 0:
-		return fmt.Sprintf("↑%d ahead", ahead)
-	case behind > 0:
-		return fmt.Sprintf("↓%d behind", behind)
-	default:
-		return "in sync"
-	}
 }
 
 func statusTag(status string) string {

@@ -45,11 +45,11 @@ func colorsEnabled() bool {
 }
 
 func (s *Session) Header() {
-	writeBanner(s.out, s.dryRun, nil, s.paint)
+	fmt.Fprint(s.out, FormatBanner(s.dryRun, nil, s.enabled))
 }
 
 func (s *Session) HeaderWithContext(ctx BannerContext) {
-	writeBanner(s.out, s.dryRun, &ctx, s.paint)
+	fmt.Fprint(s.out, FormatBanner(s.dryRun, &ctx, s.enabled))
 }
 
 func (s *Session) Divider() {

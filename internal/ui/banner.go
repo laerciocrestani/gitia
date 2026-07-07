@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"io"
+	"strings"
 )
 
 var bannerTitle = []string{
@@ -48,6 +49,19 @@ func writeBanner(out io.Writer, dryRun bool, ctx *BannerContext, paint func(stri
 	}
 
 	fmt.Fprintln(out)
+}
+
+// FormatBanner renders the banner as a string for reuse in TUI and other views.
+func FormatBanner(dryRun bool, ctx *BannerContext, colorsEnabled bool) string {
+	var buf strings.Builder
+	paint := func(text, code string) string {
+		if !colorsEnabled {
+			return text
+		}
+		return code + text + reset
+	}
+	writeBanner(&buf, dryRun, ctx, paint)
+	return buf.String()
 }
 
 func bannerTitleStyle(line int) string {
