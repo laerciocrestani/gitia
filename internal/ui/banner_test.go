@@ -48,6 +48,9 @@ func TestBannerTitleStyleFade(t *testing.T) {
 	if first == last {
 		t.Fatal("first and last title lines should use different fade colors")
 	}
+	if !strings.Contains(last, ";0;0m") {
+		t.Fatalf("last line should fade to transparent (0,0), got %q", last)
+	}
 	for i := 0; i < len(bannerTitle); i++ {
 		if bannerTitleStyle(i) == "" {
 			t.Fatalf("line %d has empty style", i)

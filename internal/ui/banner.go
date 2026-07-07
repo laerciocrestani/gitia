@@ -6,15 +6,14 @@ import (
 	"strings"
 )
 
-// 3 linhas condensadas do título (topo / meio / base das letras).
 var bannerTitle = []string{
 	"  ██████╗ ██╗████████╗ █████╗ ██╗",
+	"  ██╔════╝ ██║╚══██╔══╝██╔══██╗██║",
 	"  ██║  ███╗██║   ██║   ███████║██║",
+	"  ██║   ██║██║   ██║   ██╔══██║██║",
+	"  ╚██████╔╝██║   ██║   ██║  ██║██║",
 	"  ╚═════╝ ╚═╝   ╚═╝   ╚═╝  ╚═╝╚═╝",
 }
-
-// Degradê ciano → teal → cinza (256 cores).
-var bannerFadePalette = []int{51, 45, 39, 37, 30, 238}
 
 const bannerMetaIndent = "  "
 
@@ -68,13 +67,11 @@ func FormatBanner(dryRun bool, ctx *BannerContext, colorsEnabled bool) string {
 
 func bannerTitleStyle(line int) string {
 	n := len(bannerTitle)
-	if n == 0 {
-		return bold + cyan
+	if n <= 1 {
+		return "\033[38;2;0;255;255m"
 	}
-	maxIdx := len(bannerFadePalette) - 1
-	idx := line * maxIdx / (n - 1)
-	if idx > maxIdx {
-		idx = maxIdx
-	}
-	return fmt.Sprintf("\033[38;5;%dm", bannerFadePalette[idx])
+	t := float64(line) / float64(n-1)
+	g := int(255 * (1 - t))
+	b := int(255 * (1 - t))
+	return fmt.Sprintf("\033[38;2;0;%d;%dm", g, b)
 }
