@@ -320,7 +320,7 @@ func (m appModel) updateDashboard(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.screen = ScreenAction
 			m.action = newActionState(ActionPush)
 			m.status = "Push"
-			return m, m.action.directCmd()
+			return m, m.action.previewCmd()
 		case dashKeyPR:
 			m.screen = ScreenAction
 			m.action = newActionState(ActionPR)
@@ -461,7 +461,9 @@ func (m appModel) updateActionMsg(msg tea.Msg) (appModel, tea.Cmd) {
 			m.action.phase = PhaseConfirming
 			return m, m.action.confirmCmd()
 		case "e":
-			return m, m.action.enterEdit(m.width, m.height)
+			if m.action.canEditPreview() {
+				return m, m.action.enterEdit(m.width, m.height)
+			}
 		case "d":
 			if m.action.kind == ActionPR {
 				m.action.toggleDraft()

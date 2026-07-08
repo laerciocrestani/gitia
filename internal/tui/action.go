@@ -93,6 +93,9 @@ func (a *actionState) previewCmd() tea.Cmd {
 		case ActionCommit:
 			preview, err := app.PreviewCommit(ctx, opts)
 			return actionPreviewMsg{kind: a.kind, preview: preview, err: err}
+		case ActionPush:
+			preview, err := app.PreviewPush(ctx, opts)
+			return actionPreviewMsg{kind: a.kind, preview: preview, err: err}
 		case ActionPR:
 			preview, err := app.PreviewPR(ctx, opts)
 			return actionPreviewMsg{kind: a.kind, preview: preview, err: err}
@@ -112,6 +115,9 @@ func (a *actionState) confirmCmd() tea.Cmd {
 		case ActionCommit:
 			result, err := app.ConfirmCommit(ctx, a.preview, opts)
 			return actionConfirmMsg{kind: ActionCommit, result: result, err: err}
+		case ActionPush:
+			result, err := app.ConfirmPush(ctx, a.preview, opts)
+			return actionConfirmMsg{kind: ActionPush, result: result, err: err}
 		case ActionPR:
 			result, err := app.ConfirmPR(ctx, a.preview, a.draft, opts)
 			return actionConfirmMsg{kind: ActionPR, result: result, err: err}
@@ -123,13 +129,9 @@ func (a *actionState) confirmCmd() tea.Cmd {
 
 func (a *actionState) directCmd() tea.Cmd {
 	return func() tea.Msg {
-		ctx := context.Background()
-		opts := app.Options{Progress: a.progress}
-
 		switch a.kind {
 		case ActionPush:
-			_, err := app.RunPush(ctx, opts)
-			return actionSimpleMsg{kind: a.kind, err: err}
+			return actionSimpleMsg{kind: a.kind, err: fmt.Errorf("push requer confirmação via preview")}
 		case ActionSync:
 			err := app.RunSync(app.SyncOptions{Progress: a.progress})
 			return actionSimpleMsg{kind: a.kind, err: err}
@@ -270,8 +272,21 @@ func renderPreview(a *actionState) string {
 		b.WriteString(styleHint.Render("Preview do commit:\n\n"))
 		b.WriteString(wrapPreview(a.preview.Message, 76))
 
+	case ActionPush:
+		b.WriteString(styleHint.Render("Confirme o push:\n\n"))
+		if a.preview.Message != "" {
+			b.WriteString(styleHint.Render("Commit (IA):\n\n"))
+			b.WriteString(wrapPreview(a.preview.Message, 76))
+			b.WriteString("\n\n")
+		} else {
+			b.WriteString(styleHint.Render("  Nenhum commit pendente — apenas push dos commits existentes.\n\n"))
+		}
+		b.WriteString(styleHint.Render("Comando:"))
+		b.WriteString("\n")
+		b.WriteString(styleHint.Render("  git push -u origin HEAD"))
+
 	case ActionPR:
-		b.WriteString(styleHint.Render("Preview do PR:\n\n"))
+		b.WriteString(styleHint.Render("Confirme o Pull Request:\n\n"))
 		if a.preview.PRSuggestion != nil {
 			s := a.preview.PRSuggestion
 			b.WriteString(styleTitle.Render(s.Title))
@@ -306,8 +321,12 @@ func actionConfirmHelp(a *actionState) string {
 	}
 
 	parts := styleKey.Render("Enter") + " confirmar  " +
-		styleKey.Render("e") + " editar  " +
 		styleKey.Render("esc") + " cancelar"
+	if a.canEditPreview() {
+		parts = styleKey.Render("Enter") + " confirmar  " +
+			styleKey.Render("e") + " editar  " +
+			styleKey.Render("esc") + " cancelar"
+	}
 	if a.kind == ActionPR {
 		parts += "  " + styleKey.Render("d") + " draft"
 		if a.draft {
@@ -315,6 +334,17 @@ func actionConfirmHelp(a *actionState) string {
 		}
 	}
 	return styleHint.Render("  ") + parts
+}
+
+func (a *actionState) canEditPreview() bool {
+	switch a.kind {
+	case ActionCommit, ActionPR:
+		return true
+	case ActionPush:
+		return a.preview != nil && a.preview.Message != ""
+	default:
+		return false
+	}
 }
 
 func wrapPreview(text string, width int) string {

@@ -27,7 +27,7 @@ func (a *actionState) resizeEditors(width, height int) {
 	editH := editorHeight(height)
 
 	switch a.kind {
-	case ActionCommit:
+	case ActionCommit, ActionPush:
 		a.commitArea.SetWidth(innerW)
 		a.commitArea.SetHeight(editH)
 	case ActionPR:
@@ -66,7 +66,7 @@ func (a *actionState) initEditors(width, height int) {
 	editH := editorHeight(height)
 
 	switch a.kind {
-	case ActionCommit:
+	case ActionCommit, ActionPush:
 		a.commitArea = textarea.New()
 		a.commitArea.SetWidth(innerW)
 		a.commitArea.SetHeight(editH)
@@ -115,7 +115,7 @@ func (a *actionState) exitEdit() {
 
 func (a *actionState) focusEditor() tea.Cmd {
 	switch a.kind {
-	case ActionCommit:
+	case ActionCommit, ActionPush:
 		return a.commitArea.Focus()
 	case ActionPR:
 		switch a.editFocus {
@@ -148,7 +148,7 @@ func (a *actionState) syncEditorsFromPreview() {
 	}
 
 	switch a.kind {
-	case ActionCommit:
+	case ActionCommit, ActionPush:
 		a.commitArea.SetValue(a.preview.Message)
 	case ActionPR:
 		if a.preview.PRSuggestion != nil {
@@ -167,7 +167,7 @@ func (a *actionState) syncPreviewFromEditors() {
 	}
 
 	switch a.kind {
-	case ActionCommit:
+	case ActionCommit, ActionPush:
 		a.preview.Message = a.commitArea.Value()
 	case ActionPR:
 		if a.preview.PRSuggestion != nil {
@@ -207,7 +207,7 @@ func (a *actionState) refreshPRPreview() {
 
 func (a *actionState) updateEditors(msg tea.Msg) (*actionState, tea.Cmd) {
 	switch a.kind {
-	case ActionCommit:
+	case ActionCommit, ActionPush:
 		var cmd tea.Cmd
 		a.commitArea, cmd = a.commitArea.Update(msg)
 		return a, cmd
@@ -229,7 +229,7 @@ func (a *actionState) renderEditView() string {
 	var b strings.Builder
 
 	switch a.kind {
-	case ActionCommit:
+	case ActionCommit, ActionPush:
 		b.WriteString(styleHint.Render("Edite a mensagem do commit:"))
 		b.WriteString("\n\n")
 		b.WriteString(a.commitArea.View())

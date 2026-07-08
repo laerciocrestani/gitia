@@ -117,6 +117,27 @@ func ConfirmCommit(ctx context.Context, preview *Result, opts Options) (*Result,
 	return result, nil
 }
 
+// PreviewPush simula commit (se necessário) + push sem gravar (DryRun).
+func PreviewPush(ctx context.Context, opts Options) (*Result, error) {
+	opts.DryRun = true
+	return RunPush(ctx, opts)
+}
+
+// ConfirmPush executa commit (se necessário) + push após preview.
+func ConfirmPush(ctx context.Context, preview *Result, opts Options) (*Result, error) {
+	opts.DryRun = false
+	if preview != nil && preview.Message != "" {
+		opts.CachedCommitMessage = preview.Message
+	}
+	prog := opts.reporter("push")
+	result, err := RunPush(ctx, opts)
+	if err != nil {
+		return nil, err
+	}
+	prog.Success("Push concluído ✓")
+	return result, nil
+}
+
 // PreviewPR gera sugestão de PR sem push/create (DryRun).
 func PreviewPR(ctx context.Context, opts Options) (*Result, error) {
 	opts.DryRun = true
