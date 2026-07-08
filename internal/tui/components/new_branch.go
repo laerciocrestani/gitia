@@ -29,16 +29,16 @@ func RenderNewBranchFromPanel(cursor, total int, body string, width int) string 
 	return RenderPanel(title, body, width)
 }
 
-// RenderNewBranchTemplateListBody renders only the scrollable template rows.
+// RenderNewBranchTemplateListBody renders scrollable picker rows with icon + example labels.
 func RenderNewBranchTemplateListBody(cursor int, items []NewBranchTemplateItem) string {
 	var lines []string
 	selectableIdx := 0
 	for _, item := range items {
 		if item.Separator {
-			lines = append(lines, theme.S.Hint.Render("  ────────────────"))
+			lines = append(lines, theme.S.Hint.Render("  ─── outros ───"))
 			continue
 		}
-		line := "  " + item.Template.Label()
+		line := "  " + item.Template.ListLabel()
 		if selectableIdx == cursor {
 			line = theme.S.Current.Render("> " + strings.TrimPrefix(line, "  "))
 		} else {
@@ -50,17 +50,17 @@ func RenderNewBranchTemplateListBody(cursor int, items []NewBranchTemplateItem) 
 	return strings.Join(lines, "\n")
 }
 
-// RenderNewBranchTemplatePanel renders the template list viewport and detail table.
-func RenderNewBranchTemplatePanel(cursor, selectable int, items []NewBranchTemplateItem, listBody string, selected NewBranchTemplate, width int) string {
-	inner := ui.ContentInner(width)
+// RenderNewBranchTemplateBody renders picker list plus the full reference table.
+func RenderNewBranchTemplateBody(cursor int, items []NewBranchTemplateItem, selected NewBranchTemplate, inner int) string {
 	var lines []string
-	if strings.TrimSpace(listBody) != "" {
-		lines = append(lines, listBody)
-	}
+	lines = append(lines, RenderNewBranchTemplateListBody(cursor, items))
 	lines = append(lines, "")
-	lines = append(lines, renderTemplateTable(selected, inner))
+	lines = append(lines, renderFullTemplateTable(items, selected, inner)...)
+	return strings.Join(lines, "\n")
+}
 
-	body := strings.Join(lines, "\n")
+// RenderNewBranchTemplatePanel wraps the template step content.
+func RenderNewBranchTemplatePanel(cursor, selectable int, body string, width int) string {
 	title := "New Branch · Template"
 	if selectable > 0 {
 		title += fmt.Sprintf("  %d/%d", cursor+1, selectable)
@@ -68,29 +68,34 @@ func RenderNewBranchTemplatePanel(cursor, selectable int, items []NewBranchTempl
 	return RenderPanel(title, body, width)
 }
 
-func renderTemplateTable(t NewBranchTemplate, inner int) string {
+func renderFullTemplateTable(items []NewBranchTemplateItem, selected NewBranchTemplate, inner int) []string {
 	const (
 		prefixW = 16
-		usageW  = 34
+		usageW  = 30
 	)
 
 	header := fmt.Sprintf("%-*s %-*s %s", prefixW, "Prefixo", usageW, "Uso", "Exemplo")
 	lines := []string{theme.S.Hint.Render("  "+header)}
 
-	if t.Icon == "" && !t.Other {
-		lines = append(lines, theme.S.Hint.Render("  Selecione um template"))
-		return strings.Join(lines, "\n")
+	for _, item := range items {
+		if item.Separator {
+			continue
+		}
+		t := item.Template
+		prefix := truncatePlain(t.PrefixColumn(), prefixW)
+		usage := truncatePlain(t.Usage, usageW)
+		example := t.Example
+		if t.Other {
+			example = "(livre)"
+		}
+		row := fmt.Sprintf("%-*s %-*s %s", prefixW, prefix, usageW, usage, example)
+		if templatesMatch(t, selected) {
+			lines = append(lines, theme.S.Current.Render("> "+row))
+		} else {
+			lines = append(lines, theme.S.Hint.Render("  "+row))
+		}
 	}
-
-	prefix := truncatePlain(t.PrefixColumn(), prefixW)
-	usage := truncatePlain(t.Usage, usageW)
-	example := t.Example
-	if t.Other {
-		example = "(livre)"
-	}
-	row := fmt.Sprintf("%-*s %-*s %s", prefixW, prefix, usageW, usage, example)
-	lines = append(lines, "  "+row)
-	return strings.Join(lines, "\n")
+	return lines
 }
 
 // RenderNewBranchNamePanel renders the branch name input step.
@@ -99,9 +104,9 @@ func RenderNewBranchNamePanel(from string, template NewBranchTemplate, nameField
 
 	lines = append(lines, theme.S.Hint.Render("  From: "+from))
 	if template.Other {
-		lines = append(lines, theme.S.Hint.Render("  Template: Outro (nome livre)"))
+		lines = append(lines, theme.S.Hint.Render("  Template: ✏️ Outro (nome livre)"))
 	} else if template.Prefix != "" {
-		lines = append(lines, theme.S.Hint.Render("  Template: "+template.Label()))
+		lines = append(lines, theme.S.Hint.Render("  Template: "+template.ListLabel()))
 	}
 	lines = append(lines, "")
 	lines = append(lines, theme.S.Hint.Render("  Nome da branch:"))

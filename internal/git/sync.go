@@ -2,8 +2,6 @@ package git
 
 import (
 	"fmt"
-	"os"
-	"os/exec"
 	"strings"
 )
 
@@ -15,8 +13,10 @@ func (r *Repo) IsClean() (bool, error) {
 	return strings.TrimSpace(out) == "", nil
 }
 
+// FetchPrune updates remote refs and prunes stale tracking branches.
 func (r *Repo) FetchPrune() error {
-	return r.runInteractive("fetch", "origin", "--prune")
+	_, err := r.run("fetch", "origin", "--prune")
+	return err
 }
 
 func (r *Repo) PullBase(base string) error {
@@ -42,7 +42,8 @@ func (r *Repo) PullBase(base string) error {
 		}
 	}
 
-	return r.runInteractive("pull", "--ff-only", "origin", localBranch)
+	_, err = r.run("pull", "--ff-only", "origin", localBranch)
+	return err
 }
 
 func (r *Repo) MergedLocalBranches(base string) ([]string, error) {
@@ -128,14 +129,6 @@ func (r *Repo) mergedRef(base string) (string, error) {
 		return "origin/" + strings.TrimPrefix(resolved, "origin/"), nil
 	}
 	return resolved, nil
-}
-
-func (r *Repo) runInteractive(args ...string) error {
-	cmd := exec.Command("git", args...)
-	cmd.Dir = r.dir
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
 }
 
 func protectedBranches(base string) map[string]bool {

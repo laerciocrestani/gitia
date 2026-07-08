@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/laerciocrestani/gitai/internal/app"
+	"github.com/laerciocrestani/gitai/internal/tui/components"
 	prpkg "github.com/laerciocrestani/gitai/internal/pr"
 )
 
@@ -212,6 +213,23 @@ func (a *actionState) View(width, height int) string {
 		return ""
 	}
 
+	if a.phase == PhaseDone {
+		status, logs := a.progress.Snapshot()
+		var out strings.Builder
+		out.WriteString(components.RenderActionDone(a.title(), status, logs, width))
+		if a.result != nil {
+			if a.result.Message != "" {
+				out.WriteString("\n")
+				out.WriteString(styleHint.Render(wrapPreview(a.result.Message, width-4)))
+			}
+			if a.result.PRURL != "" {
+				out.WriteString("\n")
+				out.WriteString(styleHint.Render(a.result.PRURL))
+			}
+		}
+		return out.String()
+	}
+
 	var b strings.Builder
 	b.WriteString(styleSection.Render(a.title()))
 	b.WriteString("\n\n")
@@ -241,22 +259,6 @@ func (a *actionState) View(width, height int) string {
 		}
 		b.WriteString("\n")
 		b.WriteString(actionConfirmHelp(a))
-
-	case PhaseDone:
-		b.WriteString(styleCurrent.Render("  ✓ Concluído"))
-		b.WriteString("\n")
-		if a.result != nil {
-			if a.result.Message != "" {
-				b.WriteString("\n")
-				b.WriteString(styleHint.Render(wrapPreview(a.result.Message, width-4)))
-			}
-			if a.result.PRURL != "" {
-				b.WriteString("\n")
-				b.WriteString(styleHint.Render(a.result.PRURL))
-			}
-		}
-		b.WriteString("\n\n")
-		b.WriteString(styleHint.Render("  Enter para voltar"))
 
 	case PhaseError:
 		if a.err != nil {

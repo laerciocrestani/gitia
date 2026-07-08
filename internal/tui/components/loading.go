@@ -1,50 +1,97 @@
 package components
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/laerciocrestani/gitai/internal/tui/theme"
 )
 
-// RenderLoading renders a loading state with step-based progress.
-func RenderLoading(message string, alerts []string, percent, width int) string {
+var loadingFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+
+// RenderLoading renders an animated thinking spinner with the current status message.
+func RenderLoading(message string, alerts []string, tick, width int) string {
 	if width < 20 {
 		width = 78
 	}
-	barWidth := width - 8
-	if barWidth > 40 {
-		barWidth = 40
+	if strings.TrimSpace(message) == "" {
+		message = "Working…"
 	}
-	if barWidth < 10 {
-		barWidth = 10
-	}
-
-	if percent < 0 {
-		percent = 0
-	}
-	if percent > 100 {
-		percent = 100
+	if !strings.HasSuffix(message, "…") && !strings.HasSuffix(message, "...") {
+		message += "…"
 	}
 
-	filled := percent * barWidth / 100
-	if percent > 0 && filled == 0 {
-		filled = 1
-	}
-	bar := strings.Repeat("█", filled) + strings.Repeat("░", barWidth-filled)
-
+	frame := loadingFrames[tick%len(loadingFrames)]
 	var lines []string
-	if message != "" {
-		lines = append(lines, theme.S.Hint.Render(message))
-	}
-	lines = append(lines, theme.S.Info.Render(bar))
-	lines = append(lines, theme.S.Hint.Render(fmt.Sprintf("%d%%", percent)))
+	lines = append(lines, theme.S.Info.Render("  "+frame)+" "+theme.S.Hint.Render(message))
 	for _, alert := range alerts {
 		lines = append(lines, styleAlertLine(alert))
 	}
 
 	body := strings.Join(lines, "\n")
-	return RenderPanel("Loading", body, width)
+	return RenderPanel("Working", body, width)
+}
+
+// RenderActionDone renders a structured completion panel for long-running actions.
+func RenderActionDone(title, summary string, logs []string, width int) string {
+	var lines []string
+	lines = append(lines, theme.S.Success.Render("  ✓ Concluído"))
+	if summary != "" {
+		lines = append(lines, theme.S.Current.Render("  "+summary))
+	}
+
+	stepLines := formatActionLogs(logs)
+	if len(stepLines) > 0 {
+		lines = append(lines, "")
+		lines = append(lines, stepLines...)
+	}
+
+	lines = append(lines, "")
+	lines = append(lines, theme.S.Hint.Render("  Enter para voltar"))
+
+	body := strings.Join(lines, "\n")
+	return RenderPanel(title, body, width)
+}
+
+func formatActionLogs(logs []string) []string {
+	var out []string
+	for _, line := range logs {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		switch {
+		case strings.HasPrefix(line, "✓"):
+			out = append(out, theme.S.Success.Render("  "+line))
+		case strings.HasPrefix(line, "✗"):
+			out = append(out, theme.S.Error.Render("  "+line))
+		case strings.HasPrefix(line, "✖"):
+			out = append(out, theme.S.Warn.Render("  "+line))
+		default:
+			// Skip noisy git output lines that leaked before capture fix.
+			if looksLikeGitNoise(line) {
+				continue
+			}
+			out = append(out, theme.S.Hint.Render("  "+strings.TrimSpace(line)))
+		}
+	}
+	return out
+}
+
+func looksLikeGitNoise(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" {
+		return true
+	}
+	if strings.Contains(trimmed, "-> FETCH_HEAD") {
+		return true
+	}
+	if strings.EqualFold(trimmed, "Already up to date.") {
+		return true
+	}
+	if strings.HasPrefix(trimmed, "From ") && strings.Contains(trimmed, "origin") {
+		return true
+	}
+	return false
 }
 
 func styleAlertLine(line string) string {

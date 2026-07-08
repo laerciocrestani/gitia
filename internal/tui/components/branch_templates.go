@@ -1,7 +1,5 @@
 package components
 
-import "sort"
-
 // NewBranchTemplate describes a branch naming prefix or pattern.
 type NewBranchTemplate struct {
 	Prefix  string
@@ -24,6 +22,14 @@ func (t NewBranchTemplate) Label() string {
 	return t.Icon + " " + t.Prefix
 }
 
+// ListLabel shows icon + example branch name in the picker list.
+func (t NewBranchTemplate) ListLabel() string {
+	if t.Other {
+		return t.Icon + " Outro"
+	}
+	return t.Icon + " " + t.Example
+}
+
 func (t NewBranchTemplate) PrefixColumn() string {
 	if t.Other {
 		return t.Icon + " Outro"
@@ -39,9 +45,36 @@ func (t NewBranchTemplate) NameSeed() string {
 	return t.Prefix
 }
 
-// BranchTemplateCatalog returns all templates: common, separator, rest, and Outro.
+func templatesMatch(a, b NewBranchTemplate) bool {
+	if a.Other != b.Other {
+		return false
+	}
+	if a.Other {
+		return true
+	}
+	return a.Prefix == b.Prefix
+}
+
+// BranchTemplateCatalog returns all templates: common, rest, and Outro.
 func BranchTemplateCatalog() []NewBranchTemplate {
-	common := []NewBranchTemplate{
+	common := commonBranchTemplates()
+	rest := restBranchTemplates()
+
+	out := make([]NewBranchTemplate, 0, len(common)+len(rest)+1)
+	out = append(out, common...)
+	out = append(out, rest...)
+	out = append(out, NewBranchTemplate{
+		Icon:    "✏️",
+		Usage:   "Nome personalizado",
+		Example: "minha-branch",
+		Other:   true,
+	})
+	return out
+}
+
+func commonBranchTemplates() []NewBranchTemplate {
+	// Mais comuns — ordem alfabética por prefixo.
+	return []NewBranchTemplate{
 		{Prefix: "chore/", Icon: "🔧", Usage: "Tarefas técnicas sem impacto funcional", Example: "chore/update-dependencies"},
 		{Prefix: "docs/", Icon: "📚", Usage: "Documentação", Example: "docs/api-reference"},
 		{Prefix: "feature/", Icon: "✨", Usage: "Nova funcionalidade", Example: "feature/user-profile"},
@@ -51,8 +84,11 @@ func BranchTemplateCatalog() []NewBranchTemplate {
 		{Prefix: "release/", Icon: "🚀", Usage: "Preparação de uma versão", Example: "release/v2.4.0"},
 		{Prefix: "test/", Icon: "🧪", Usage: "Testes", Example: "test/user-controller"},
 	}
+}
 
-	rest := []NewBranchTemplate{
+func restBranchTemplates() []NewBranchTemplate {
+	// Demais prefixos — ordem alfabética.
+	return []NewBranchTemplate{
 		{Prefix: "bugfix/", Icon: "🪲", Usage: "Correção de bug (alternativa ao fix)", Example: "bugfix/memory-leak"},
 		{Prefix: "build/", Icon: "📦", Usage: "Build e ferramentas", Example: "build/docker"},
 		{Prefix: "ci/", Icon: "⚙️", Usage: "CI/CD", Example: "ci/github-actions"},
@@ -65,20 +101,6 @@ func BranchTemplateCatalog() []NewBranchTemplate {
 		{Prefix: "spike/", Icon: "🔬", Usage: "Pesquisa técnica", Example: "spike/openai-responses-api"},
 		{Prefix: "style/", Icon: "💅", Usage: "Formatação/código (sem alterar lógica)", Example: "style/php-cs-fixer"},
 	}
-
-	sort.Slice(common, func(i, j int) bool { return common[i].Prefix < common[j].Prefix })
-	sort.Slice(rest, func(i, j int) bool { return rest[i].Prefix < rest[j].Prefix })
-
-	out := make([]NewBranchTemplate, 0, len(common)+len(rest)+1)
-	out = append(out, common...)
-	out = append(out, rest...)
-	out = append(out, NewBranchTemplate{
-		Icon:    "✏️",
-		Usage:   "Nome personalizado",
-		Example: "minha-branch",
-		Other:   true,
-	})
-	return out
 }
 
 // BranchTemplateItems returns picker rows with a separator after the common group.

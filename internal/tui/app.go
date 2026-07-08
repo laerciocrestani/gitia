@@ -776,7 +776,7 @@ func (m appModel) View() string {
 				if status == "" {
 					status = "Generating…"
 				}
-				b.WriteString(components.RenderLoading(status, components.AlertLogs(logs), m.action.progress.Percent(), m.width))
+				b.WriteString(components.RenderLoading(status, components.AlertLogs(logs), m.loadTick, m.width))
 			} else {
 				b.WriteString(m.action.View(m.width, m.height))
 			}
@@ -794,7 +794,7 @@ func (m appModel) View() string {
 			if status == "" {
 				status = m.status
 			}
-			b.WriteString(views.RenderLoadingDashboard(status, components.AlertLogs(logs), m.loadProg.Percent(), m.width))
+			b.WriteString(views.RenderLoadingDashboard(status, components.AlertLogs(logs), m.loadTick, m.width))
 		} else if m.err != nil {
 			b.WriteString("\n")
 			b.WriteString(styleError.Render("  ✖ " + m.err.Error()))

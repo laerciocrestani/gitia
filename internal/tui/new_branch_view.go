@@ -163,7 +163,12 @@ func (m *branchesModel) refreshTemplateContent() {
 	if !m.ready {
 		return
 	}
-	body := components.RenderNewBranchTemplateListBody(m.templateCursor, m.templateItems)
+	inner := m.templateViewport.Width - 4
+	if inner < 40 {
+		inner = 40
+	}
+	selected := components.TemplateAtCursor(m.templateItems, m.templateCursor)
+	body := components.RenderNewBranchTemplateBody(m.templateCursor, m.templateItems, selected, inner)
 	m.templateViewport.SetContent(body)
 	line := m.templateLineOffset(m.templateCursor)
 	if line >= m.templateViewport.YOffset+m.templateViewport.Height {
@@ -208,7 +213,12 @@ func (m *branchesModel) templateBody() string {
 	if m.ready {
 		return m.templateViewport.View()
 	}
-	return components.RenderNewBranchTemplateListBody(m.templateCursor, m.templateItems)
+	inner := 76
+	if m.listViewport.Width > 4 {
+		inner = m.listViewport.Width - 4
+	}
+	selected := components.TemplateAtCursor(m.templateItems, m.templateCursor)
+	return components.RenderNewBranchTemplateBody(m.templateCursor, m.templateItems, selected, inner)
 }
 
 func (m *branchesModel) updateNewBranch(msg tea.Msg) (tea.Cmd, bool) {
@@ -268,8 +278,7 @@ func (m branchesModel) viewNewBranch(width int) string {
 		b.WriteString(components.RenderNewBranchFromPanel(m.fromCursor, len(m.branches), m.fromBody(), width))
 	case components.NewBranchStepTemplate:
 		selectable := components.SelectableTemplateCount(m.templateItems)
-		selected := components.TemplateAtCursor(m.templateItems, m.templateCursor)
-		b.WriteString(components.RenderNewBranchTemplatePanel(m.templateCursor, selectable, m.templateItems, m.templateBody(), selected, width))
+		b.WriteString(components.RenderNewBranchTemplatePanel(m.templateCursor, selectable, m.templateBody(), width))
 	case components.NewBranchStepName:
 		b.WriteString(components.RenderNewBranchNamePanel(m.fromBranch, m.selectedTemplate, m.nameInput.View(), width))
 	}
