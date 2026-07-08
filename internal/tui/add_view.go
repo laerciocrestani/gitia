@@ -11,6 +11,8 @@ import (
 	"github.com/laerciocrestani/gitai/internal/tui/components"
 )
 
+const addRowTodos = 0
+
 type addModel struct {
 	files    []gitpkg.FileChange
 	selected map[int]bool
@@ -30,14 +32,18 @@ func newAddModel() addModel {
 	return addModel{selected: map[int]bool{}}
 }
 
+func (m *addModel) rowCount() int {
+	if len(m.files) == 0 {
+		return 0
+	}
+	return len(m.files) + 1 // +1 para "Todos"
+}
+
 func (m *addModel) Load(snap *app.WorkspaceSnapshot) {
 	m.files = app.AddableFiles(snap)
 	m.selected = map[int]bool{}
-	m.cursor = 0
+	m.cursor = addRowTodos
 	m.err = nil
-	if m.cursor >= len(m.files) {
-		m.cursor = 0
-	}
 	if m.ready {
 		m.viewport.SetContent(m.listContent())
 	}
@@ -48,8 +54,9 @@ func (m *addModel) SetSize(width, height int) {
 	if rows < 6 {
 		rows = 6
 	}
-	if len(m.files) > 0 && rows > len(m.files)+1 {
-		rows = len(m.files) + 1
+	total := m.rowCount()
+	if total > 0 && rows > total {
+		rows = total
 	}
 	if !m.ready {
 		m.viewport = viewport.New(width, rows)
@@ -65,23 +72,25 @@ func (m *addModel) listContent() string {
 	if len(m.files) == 0 {
 		return styleHint.Render("  (nenhum arquivo para adicionar)")
 	}
-	lines := make([]string, len(m.files))
+	lines := make([]string, m.rowCount())
+	lines[0] = components.RenderAddTodosLine(m.allSelected(), m.cursor == addRowTodos)
 	for i, f := range m.files {
-		lines[i] = components.RenderAddFileLine(m.selected[i], i == m.cursor, f)
+		lines[i+1] = components.RenderAddFileLine(m.selected[i], m.cursor == i+1, f)
 	}
 	return strings.Join(lines, "\n")
 }
 
 func (m *addModel) moveCursor(delta int) tea.Cmd {
-	if len(m.files) == 0 {
+	if m.rowCount() == 0 {
 		return nil
 	}
 	m.cursor += delta
-	if m.cursor < 0 {
-		m.cursor = 0
+	if m.cursor < addRowTodos {
+		m.cursor = addRowTodos
 	}
-	if m.cursor >= len(m.files) {
-		m.cursor = len(m.files) - 1
+	max := m.rowCount() - 1
+	if m.cursor > max {
+		m.cursor = max
 	}
 	m.viewport.SetContent(m.listContent())
 	if m.cursor >= m.viewport.Height+m.viewport.YOffset {
@@ -93,10 +102,15 @@ func (m *addModel) moveCursor(delta int) tea.Cmd {
 }
 
 func (m *addModel) toggleCursor() {
-	if m.cursor < 0 || m.cursor >= len(m.files) {
+	if m.cursor == addRowTodos {
+		m.toggleAll()
 		return
 	}
-	m.selected[m.cursor] = !m.selected[m.cursor]
+	idx := m.cursor - 1
+	if idx < 0 || idx >= len(m.files) {
+		return
+	}
+	m.selected[idx] = !m.selected[idx]
 	m.viewport.SetContent(m.listContent())
 }
 
@@ -134,12 +148,16 @@ func (m *addModel) selectedPaths() []string {
 }
 
 func (m *addModel) pathsToStage() []string {
+	if m.cursor == addRowTodos {
+		return nil
+	}
 	paths := m.selectedPaths()
 	if len(paths) > 0 {
 		return paths
 	}
-	if m.cursor >= 0 && m.cursor < len(m.files) {
-		return []string{m.files[m.cursor].Path}
+	idx := m.cursor - 1
+	if idx >= 0 && idx < len(m.files) {
+		return []string{m.files[idx].Path}
 	}
 	return nil
 }
@@ -159,6 +177,9 @@ func stageAllCmd() tea.Cmd {
 }
 
 func (m *addModel) requestStageSelected() tea.Cmd {
+	if m.cursor == addRowTodos || m.allSelected() {
+		return stageAllCmd()
+	}
 	paths := m.pathsToStage()
 	if len(paths) == 0 {
 		return nil
@@ -207,7 +228,6 @@ func (m addModel) View(width int) string {
 func addHelpLine() string {
 	return styleKey.Render("↑↓") + " navegar  " +
 		styleKey.Render("space") + " selecionar  " +
-		styleKey.Render("A") + " todos  " +
 		styleKey.Render("Enter") + " adicionar  " +
 		styleKey.Render(".") + " git add .  " +
 		styleKey.Render("esc") + " voltar"

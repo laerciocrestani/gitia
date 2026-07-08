@@ -377,8 +377,9 @@ func (m appModel) updateDashboard(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case dashKeyBranches:
 			m.screen = ScreenBranches
 			m.status = "Branches"
+			cmd := m.branches.Load(m.snapshot)
 			m.branches.SetSize(m.width, m.height)
-			return m, m.branches.Load(m.snapshot)
+			return m, cmd
 		case dashKeyAdd:
 			m.screen = ScreenAdd
 			m.status = "Add"
@@ -470,9 +471,6 @@ func (m appModel) updateAdd(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.add.moveCursor(1)
 	case " ":
 		m.add.toggleCursor()
-		return m, nil
-	case "A", "shift+a":
-		m.add.toggleAll()
 		return m, nil
 	case "enter":
 		return m, m.add.requestStageSelected()

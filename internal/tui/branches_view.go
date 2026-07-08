@@ -55,23 +55,31 @@ func (m *branchesModel) Load(snap *app.WorkspaceSnapshot) tea.Cmd {
 	m.checkoutTarget = ""
 	m.checkoutOK = false
 	m.err = nil
-	m.ready = false
-	m.detailLoading = true
+
+	if branches, err := app.ListBranches(); err == nil && len(branches) > 0 {
+		m.branches = branches
+	} else if snap != nil && snap.Overview != nil {
+		m.branches = append([]gitpkg.BranchInfo(nil), snap.Overview.Branches...)
+	}
 
 	if snap != nil && snap.Overview != nil {
-		m.branches = append([]gitpkg.BranchInfo(nil), snap.Overview.Branches...)
-		m.base = snap.Overview.BaseBranch
+		if m.base == "main" && snap.Overview.BaseBranch != "" {
+			m.base = snap.Overview.BaseBranch
+		}
 		m.dirty = snap.Overview.IsDirty()
-		for i, b := range m.branches {
-			if b.Current {
-				m.cursor = i
-				break
-			}
+	}
+	for i, b := range m.branches {
+		if b.Current {
+			m.cursor = i
+			break
 		}
 	}
 	if m.base == "" {
 		m.base = "main"
 	}
+
+	m.detailLoading = true
+	m.refreshListContent()
 	return loadBranchDetailCmd(m.snap, m.selectedBranch())
 }
 
@@ -80,8 +88,8 @@ func (m *branchesModel) SetSize(width, height int) {
 	if listRows < 6 {
 		listRows = 6
 	}
-	if len(m.branches) > 0 && listRows > len(m.branches)+1 {
-		listRows = len(m.branches) + 1
+	if len(m.branches) > 0 && listRows > len(m.branches) {
+		listRows = len(m.branches)
 	}
 	if listRows < 4 {
 		listRows = 4
@@ -94,18 +102,47 @@ func (m *branchesModel) SetSize(width, height int) {
 		m.listViewport.Width = width
 		m.listViewport.Height = listRows
 	}
+	m.refreshListContent()
+}
+
+func (m *branchesModel) refreshListContent() {
+	if !m.ready {
+		return
+	}
 	m.listViewport.SetContent(m.listContent())
+	m.syncScroll()
 }
 
 func (m *branchesModel) listContent() string {
-	var lines []string
-	for i, b := range m.branches {
-		lines = append(lines, components.RenderBranchListLine(b, i == m.cursor))
+	if len(m.branches) == 0 {
+		return ""
 	}
-	if len(lines) == 0 {
-		return styleHint.Render("  (nenhuma branch local)")
+	lines := make([]string, len(m.branches))
+	for i, b := range m.branches {
+		lines[i] = components.RenderBranchListLineNumbered(i, b, i == m.cursor)
 	}
 	return strings.Join(lines, "\n")
+}
+
+func (m *branchesModel) listBody() string {
+	if len(m.branches) == 0 {
+		return ""
+	}
+	if m.ready {
+		return m.listViewport.View()
+	}
+	return m.listContent()
+}
+
+func (m *branchesModel) syncScroll() {
+	if !m.ready || len(m.branches) == 0 {
+		return
+	}
+	if m.cursor >= m.listViewport.YOffset+m.listViewport.Height {
+		m.listViewport.SetYOffset(m.cursor - m.listViewport.Height + 1)
+	} else if m.cursor < m.listViewport.YOffset {
+		m.listViewport.SetYOffset(m.cursor)
+	}
 }
 
 func (m *branchesModel) selectedBranch() string {
@@ -150,12 +187,7 @@ func (m *branchesModel) moveCursor(delta int) tea.Cmd {
 	if m.cursor >= len(m.branches) {
 		m.cursor = len(m.branches) - 1
 	}
-	m.listViewport.SetContent(m.listContent())
-	if m.cursor >= m.listViewport.Height {
-		m.listViewport.SetYOffset(m.cursor - m.listViewport.Height + 1)
-	} else if m.cursor < m.listViewport.YOffset {
-		m.listViewport.SetYOffset(m.cursor)
-	}
+	m.refreshListContent()
 	m.confirmDirty = false
 	m.checkoutTarget = ""
 	m.detailLoading = true
@@ -210,14 +242,9 @@ func (m branchesModel) Update(msg tea.Msg) (branchesModel, tea.Cmd) {
 
 func (m branchesModel) View(width int) string {
 	var b strings.Builder
-	b.WriteString(styleSection.Render("Branches"))
-	if m.base != "" {
-		b.WriteString(styleHint.Render("  base: " + m.base))
-	}
-	b.WriteString("\n\n")
 
 	if m.err != nil {
-		b.WriteString(styleError.Render("  ✗ " + m.err.Error()))
+		b.WriteString(styleError.Render("  ✖ " + m.err.Error()))
 		b.WriteString("\n\n")
 	}
 
@@ -230,17 +257,14 @@ func (m branchesModel) View(width int) string {
 		b.WriteString("\n\n")
 	}
 
-	if m.ready {
-		b.WriteString(m.listViewport.View())
-	} else {
-		b.WriteString(styleHint.Render("  (vazio)"))
-	}
+	b.WriteString(components.RenderBranchesPanel(m.cursor, len(m.branches), m.base, m.listBody(), width))
 	b.WriteString("\n")
 
-	if m.detailLoading || m.detailFor != m.selectedBranch() {
-		b.WriteString(components.RenderBranchDetail(nil, m.base, width))
+	selected := m.selectedBranch()
+	if m.detailLoading || m.detailFor != selected {
+		b.WriteString(components.RenderBranchDetail(nil, selected, m.base, width))
 	} else {
-		b.WriteString(components.RenderBranchDetail(m.detail, m.base, width))
+		b.WriteString(components.RenderBranchDetail(m.detail, selected, m.base, width))
 	}
 
 	return b.String()

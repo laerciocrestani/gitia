@@ -6,6 +6,18 @@ import (
 	gitpkg "github.com/laerciocrestani/gitai/internal/git"
 )
 
+// ListBranches returns all local branches with tracking info.
+func ListBranches() ([]gitpkg.BranchInfo, error) {
+	repo, err := gitpkg.New()
+	if err != nil {
+		return nil, err
+	}
+	if err := repo.IsRepo(); err != nil {
+		return nil, fmt.Errorf("diretório atual não é um repositório git")
+	}
+	return repo.ListBranches()
+}
+
 // LoadBranchDetail returns contextual information for a branch.
 func LoadBranchDetail(name string, snap *WorkspaceSnapshot) (*gitpkg.BranchDetail, error) {
 	if name == "" {

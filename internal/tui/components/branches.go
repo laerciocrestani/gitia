@@ -8,10 +8,34 @@ import (
 	"github.com/laerciocrestani/gitai/internal/tui/theme"
 )
 
+// RenderBranchesPanel wraps the branch picker list.
+func RenderBranchesPanel(cursor, total int, base, body string, width int) string {
+	title := "Branches"
+	if total > 0 {
+		title += fmt.Sprintf("  %d/%d", cursor+1, total)
+	}
+	if base != "" {
+		title += " · base " + base
+	}
+	if strings.TrimSpace(body) == "" {
+		body = theme.S.Hint.Render("  (nenhuma branch local)")
+	}
+	return RenderPanel(title, body, width)
+}
+
 // RenderBranchDetail renders contextual information for the selected branch.
-func RenderBranchDetail(detail *gitpkg.BranchDetail, base string, width int) string {
+func RenderBranchDetail(detail *gitpkg.BranchDetail, branchName, base string, width int) string {
+	title := "Context"
+	if branchName != "" {
+		title += " · " + branchName
+	}
+
 	if detail == nil {
-		return theme.S.Hint.Render("  Carregando…")
+		msg := "  Carregando…"
+		if branchName != "" {
+			msg = "  Carregando contexto de " + branchName + "…"
+		}
+		return RenderPanel(title, theme.S.Hint.Render(msg), width)
 	}
 
 	var lines []string
@@ -59,8 +83,8 @@ func RenderBranchDetail(detail *gitpkg.BranchDetail, base string, width int) str
 		}
 	}
 
-	body := strings.Join(lines, "\n")
-	return RenderPanel("Branch Details", body, width)
+	panelBody := strings.Join(lines, "\n")
+	return RenderPanel(title, panelBody, width)
 }
 
 // RenderBranchListLine renders a single branch entry for the picker list.
@@ -87,4 +111,11 @@ func RenderBranchListLine(info gitpkg.BranchInfo, selected bool) string {
 		line += theme.S.Warn.Render(fmt.Sprintf("  ↑%d ↓%d", info.Ahead, info.Behind))
 	}
 	return line
+}
+
+// RenderBranchListLineNumbered renders a branch row with its position in the list.
+func RenderBranchListLineNumbered(index int, info gitpkg.BranchInfo, selected bool) string {
+	num := fmt.Sprintf("%2d", index+1)
+	line := RenderBranchListLine(info, selected)
+	return "  " + theme.S.Hint.Render(num) + strings.TrimPrefix(line, "  ")
 }
