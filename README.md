@@ -4,55 +4,55 @@
 
 # gitai
 
-CLI em Go para gerar **Conventional Commits** com IA barata, automatizar **push** e criar **Pull Requests detalhados** via GitHub CLI.
+Go CLI to generate **Conventional Commits** with affordable AI, automate **push**, and create detailed **Pull Requests** via GitHub CLI.
 
 ---
 
-## Sumário
+## Table of contents
 
-- [Por quê usar o gitai?](#por-quê-usar-o-gitai)
-- [Requisitos](#requisitos)
-- [Instalação rápida](#instalação-rápida)
-- [Dashboard TUI](#referência-de-comandos)
-- [Instalação manual](#instalação-manual)
-- [Atualização](#atualização)
-- [Configuração](#configuração)
-- [Versionamento](#versionamento)
-- [Referência de comandos](#referência-de-comandos)
-- [Flags globais e por comando](#flags-globais-e-por-comando)
-- [Uso detalhado](#uso-detalhado)
-- [Uso de tokens e custo](#uso-de-tokens-e-custo)
-- [Providers de IA](#providers-de-ia)
-- [Formato do commit e do PR](#formato-do-commit-e-do-pr)
+- [Why gitai?](#why-gitai)
+- [Requirements](#requirements)
+- [Quick install](#quick-install)
+- [TUI dashboard](#command-reference)
+- [Manual install](#manual-install)
+- [Updating](#updating)
+- [Configuration](#configuration)
+- [Versioning](#versioning)
+- [Command reference](#command-reference)
+- [Global and per-command flags](#global-and-per-command-flags)
+- [Detailed usage](#detailed-usage)
+- [Token usage and cost](#token-usage-and-cost)
+- [AI providers](#ai-providers)
+- [Commit and PR format](#commit-and-pr-format)
 - [Troubleshooting](#troubleshooting)
-- [Segurança](#segurança)
-- [Licença](#licença)
+- [Security](#security)
+- [License](#license)
 
 ---
 
-## Por quê usar o gitai?
+## Why gitai?
 
-Assistentes de IA no editor costumam gastar tokens caros para ler diff, gerar mensagem de commit e executar git. O **gitai** externaliza esse fluxo para uma IA configurável (DeepSeek via OpenRouter, GPT-4o-mini, Gemini Flash) por frações de centavo — funciona com qualquer editor ou agente (Claude Code, Copilot, terminal, etc.).
+Editor AI assistants often burn expensive tokens reading diffs, writing commit messages, and running git. **gitai** moves that workflow to a configurable AI (DeepSeek via OpenRouter, GPT-4o-mini, Gemini Flash) for fractions of a cent — works with any editor or agent (Claude Code, Copilot, terminal, etc.).
 
-Com o gitai você obtém:
+With gitai you get:
 
-- Mensagens no padrão **Conventional Commits**
-- PRs estruturados com **Summary**, **Changes**, **Test plan** e **Notes**
-- Resumo de **tokens e custo** (prévia antes da IA + total após execução)
-- **Relatório de gastos** (`gitai report`) com histórico em CSV
-- Integração nativa com **`gh pr create`**
+- Messages following **Conventional Commits**
+- Structured PRs with **Summary**, **Changes**, **Test plan**, and **Notes**
+- **Token and cost** summary (estimate before AI + total after execution)
+- **Spending report** (`gitai report`) with CSV history
+- Native integration with **`gh pr create`**
 
 ---
 
-## Requisitos
+## Requirements
 
-| Ferramenta | Versão mínima | Para quê |
-|------------|---------------|----------|
-| [git](https://git-scm.com/) | qualquer recente | Repositório local, diff, commit, push |
-| [Go](https://go.dev/dl/) | 1.22+ | Compilar o gitai (o `install.sh` instala automaticamente se faltar) |
-| [GitHub CLI (`gh`)](https://cli.github.com/) | autenticado | Criar PR (`gitai pr`) — opcional até usar PR |
+| Tool | Minimum version | Purpose |
+|------|-----------------|---------|
+| [git](https://git-scm.com/) | any recent | Local repo, diff, commit, push |
+| [Go](https://go.dev/dl/) | 1.22+ | Build gitai (`install.sh` installs automatically if missing) |
+| [GitHub CLI (`gh`)](https://cli.github.com/) | authenticated | Create PR (`gitai pr`) — optional until you use PR |
 
-Autentique o GitHub CLI antes de usar `gitai pr`:
+Authenticate GitHub CLI before using `gitai pr`:
 
 ```bash
 gh auth login
@@ -61,20 +61,20 @@ gh auth status
 
 ---
 
-## Instalação rápida
+## Quick install
 
-### Um comando (recomendado)
+### One command (recommended)
 
-O script `install.sh` executa **tudo em ordem**:
+The `install.sh` script runs **everything in order**:
 
-1. Verifica `git`, `curl` e `tar`
-2. Instala Go em `~/sdk/go` se não houver versão compatível
-3. Clona o repositório em `~/.config/gitai/repository` (ou usa o clone atual)
-4. Compila e instala o binário (`go run ./cmd/gitai install`)
-5. Grava `PATH` no `~/.zshrc` ou `~/.bashrc` (Go + `~/go/bin`)
-6. Executa `gitai config` (wizard interativo)
+1. Checks `git`, `curl`, and `tar`
+2. Installs Go in `~/sdk/go` if no compatible version is found
+3. Clones the repo to `~/.config/gitai/repository` (or uses the current clone)
+4. Builds and installs the binary (`go run ./cmd/gitai install`)
+5. Writes `PATH` to `~/.zshrc` or `~/.bashrc` (Go + `~/go/bin`)
+6. Runs `gitai config` (interactive wizard)
 
-**A partir do clone:**
+**From a clone:**
 
 ```bash
 git clone https://github.com/laerciocrestani/gitai.git
@@ -82,110 +82,110 @@ cd gitai
 ./install.sh
 ```
 
-**Sem clonar (curl):**
+**Without cloning (curl):**
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/laerciocrestani/gitai/main/install.sh | bash
 ```
 
-Opções do instalador:
+Installer options:
 
-| Opção | Descrição |
-|-------|-----------|
-| `--no-config` | Pula o wizard `gitai config` ao final |
-| `--skip-go` | Não instala Go automaticamente (falha se ausente) |
-| `--help` | Ajuda |
+| Option | Description |
+|--------|-------------|
+| `--no-config` | Skip the `gitai config` wizard at the end |
+| `--skip-go` | Do not install Go automatically (fails if missing) |
+| `--help` | Help |
 
-Variáveis úteis: `GITAI_REPO_URL`, `GITAI_INSTALL_DIR`, `GO_VERSION` (default `1.25.0`).
+Useful variables: `GITAI_REPO_URL`, `GITAI_INSTALL_DIR`, `GO_VERSION` (default `1.25.0`).
 
-### Desinstalar
+### Uninstall
 
-Remove binário, `~/.config/gitai/`, blocos de PATH no shell e (se instalado pelo `install.sh`) o Go em `~/sdk/go`:
+Removes the binary, `~/.config/gitai/`, PATH blocks in your shell, and (if installed by `install.sh`) Go in `~/sdk/go`:
 
 ```bash
 ./uninstall.sh
-# ou
+# or
 curl -fsSL https://raw.githubusercontent.com/laerciocrestani/gitai/main/uninstall.sh | bash
 ```
 
-| Opção | Descrição |
-|-------|-----------|
-| `-y`, `--yes` | Não pede confirmação |
-| `--remove-go` | Remove `~/sdk/go` mesmo sem marker do instalador |
-| `--keep-go` | Mantém o Go em `~/sdk/go` |
+| Option | Description |
+|--------|-------------|
+| `-y`, `--yes` | Skip confirmation |
+| `--remove-go` | Remove `~/sdk/go` even without installer marker |
+| `--keep-go` | Keep Go in `~/sdk/go` |
 
-**Não remove:** arquivos `.gitai.yaml` em projetos nem variáveis `GITAI_*` definidas manualmente.
+**Does not remove:** `.gitai.yaml` files in projects or manually set `GITAI_*` variables.
 
-O script `./scripts/setup.sh uninstall` delega para `./uninstall.sh`.
+The `./scripts/setup.sh uninstall` script delegates to `./uninstall.sh`.
 
-Após instalar, abra um novo terminal (ou `source ~/.zshrc`) e use:
+After installing, open a new terminal (or `source ~/.zshrc`) and run:
 
 ```bash
-gitai              # dashboard TUI dentro de um repo git
+gitai              # TUI dashboard inside a git repo
 gitai commit
 gitai pr
 ```
 
-### Comandos pós-instalação
+### Post-install commands
 
-| Comando | O que faz |
-|---------|-----------|
-| `./install.sh` | Instalação completa (Go + binário + PATH + config) |
-| `./uninstall.sh` | Remove gitai, dados e PATH do instalador |
-| `gitai config` | Wizard de configuração (equivale a `gitai config init`) |
-| `gitai config show` | Exibe config ativa (API key mascarada) |
-| `gitai update` | Atualiza e reinstala o binário (funciona de qualquer diretório) |
-| `gitai version` | Versão automática + commit + número de commits |
-| `gitai report` | Relatório de uso e custos de IA (últimas 24h por padrão) |
-| `gitai pricing update` | Busca preços oficiais do Gemini e salva localmente |
-| `gitai status` | Alias para `git status` |
+| Command | What it does |
+|---------|--------------|
+| `./install.sh` | Full install (Go + binary + PATH + config) |
+| `./uninstall.sh` | Remove gitai, data, and installer PATH |
+| `gitai config` | Configuration wizard (same as `gitai config init`) |
+| `gitai config show` | Show active config (masked API key) |
+| `gitai update` | Update and reinstall binary (works from any directory) |
+| `gitai version` | Auto version + commit + commit count |
+| `gitai report` | AI usage and cost report (last 24h by default) |
+| `gitai pricing update` | Fetch official Gemini prices and save locally |
+| `gitai status` | Alias for `git status` |
 
-O script `./scripts/setup.sh` é um wrapper de compatibilidade que delega para `./install.sh` e `./uninstall.sh`.
+The `./scripts/setup.sh` script is a compatibility wrapper that delegates to `./install.sh` and `./uninstall.sh`.
 
-### Atualizar depois
+### Update later
 
-De qualquer diretório:
+From any directory:
 
 ```bash
 gitai update
 ```
 
-O gitai usa o clone salvo em `~/.config/gitai/repository`, a variável `GITAI_ROOT` ou, se não encontrar clone local, baixa a última versão do GitHub automaticamente.
+gitai uses the saved clone in `~/.config/gitai/repository`, the `GITAI_ROOT` variable, or downloads the latest version from GitHub automatically if no local clone is found.
 
 ---
 
-## Instalação manual
+## Manual install
 
-Se preferir não usar o `install.sh`:
+If you prefer not to use `install.sh`:
 
-### 1. Clonar o repositório
+### 1. Clone the repository
 
 ```bash
 git clone https://github.com/laerciocrestani/gitai.git
 cd gitai
 ```
 
-### 2. Instalar Go 1.22+
+### 2. Install Go 1.22+
 
-https://go.dev/dl/ — ou deixe o `./install.sh` instalar em `~/sdk/go`.
+https://go.dev/dl/ — or let `./install.sh` install to `~/sdk/go`.
 
-### 3. Instalar o binário
+### 3. Install the binary
 
 ```bash
 go run ./cmd/gitai install
 ```
 
-O binário é instalado em `~/go/bin/gitai` e o instalador configura o PATH.
+The binary is installed to `~/go/bin/gitai` and the installer configures PATH.
 
-### 4. Configurar
+### 4. Configure
 
 ```bash
 gitai config
 ```
 
-### Alternativa sem alterar o PATH
+### Alternative without changing PATH
 
-Execute diretamente pelo caminho completo:
+Run directly by full path:
 
 ```bash
 ~/go/bin/gitai config init
@@ -194,20 +194,20 @@ Execute diretamente pelo caminho completo:
 
 ---
 
-## Atualização
+## Updating
 
 ```bash
 gitai update
 ```
 
-Opcional — apontar para o seu clone local:
+Optional — point to your local clone:
 
 ```bash
 export GITAI_ROOT=~/projects/gitai
 gitai update
 ```
 
-Ou manualmente, dentro do clone:
+Or manually, inside the clone:
 
 ```bash
 cd gitai
@@ -217,37 +217,37 @@ go install ./cmd/gitai
 
 ---
 
-## Configuração
+## Configuration
 
-### Wizard interativo (recomendado)
+### Interactive wizard (recommended)
 
 ```bash
 gitai config
 ```
 
-Equivalente a `gitai config init`.
+Same as `gitai config init`.
 
-O wizard pergunta, nesta ordem:
+The wizard asks, in this order:
 
-| Campo | Opções / default | Descrição |
-|-------|------------------|-----------|
-| Provedor | `openrouter`, `openai`, `gemini` | Seletor com ↑↓ e Enter |
-| Modelo | sugestões + **Outro...** | Seletor; "Outro" permite digitar um modelo customizado |
-| Chave API | — | Chave do provedor (Enter mantém a atual) |
-| Idioma | default: `pt-BR` | Idioma das mensagens geradas |
-| Branch base | default: `main` | Branch usada como base do PR |
-| Co-author | opcional | Trailer adicionado ao commit |
-| Limpar terminal | `s` / `n` | Limpa o console antes de cada comando gitai |
+| Field | Options / default | Description |
+|-------|-------------------|-------------|
+| Provider | `openrouter`, `openai`, `gemini` | Selector with ↑↓ and Enter |
+| Model | suggestions + **Other...** | Selector; "Other" lets you type a custom model |
+| API key | — | Provider key (Enter keeps the current value) |
+| Language | default: `pt-BR` | Language of generated commit/PR messages |
+| Base branch | default: `main` | Branch used as PR base |
+| Co-author | optional | Trailer appended to the commit |
+| Clear terminal | `y` / `n` | Clear the console before each gitai command |
 
-Provedor e modelo usam navegação por setas (`↑↓`) ou `j`/`k`. Fora de um TTY (CI, pipe), cai em lista numerada.
+Provider and model use arrow navigation (`↑↓`) or `j`/`k`. Outside a TTY (CI, pipe), it falls back to a numbered list.
 
-Se já existir configuração, **Enter em qualquer campo mantém o valor atual** (ex.: `[gemini]`).
+If config already exists, **Enter on any field keeps the current value** (e.g. `[gemini]`).
 
-Salva em `~/.config/gitai/config.yaml` com permissão `0600`.
+Saved to `~/.config/gitai/config.yaml` with permission `0600`.
 
-### Arquivo de configuração global
+### Global config file
 
-Caminho padrão: `~/.config/gitai/config.yaml`
+Default path: `~/.config/gitai/config.yaml`
 
 ```yaml
 provider: openrouter        # openai | gemini | openrouter
@@ -257,39 +257,39 @@ language: "pt-BR"
 base_branch: "main"
 co_author: ""
 max_diff_bytes: 120000
-clear_screen: false       # true = limpa o terminal antes de cada comando
-interactive_ui: true      # true = gitai abre TUI no terminal (padrão)
-ui_color: true            # cores na CLI e TUI (padrão)
-ui_auto_refresh_seconds: 5   # polling do dashboard (0 = desliga)
-ui_watch_files: true      # fsnotify no working tree (padrão)
+clear_screen: false       # true = clear terminal before each command
+interactive_ui: true      # true = gitai opens TUI in terminal (default)
+ui_color: true            # colors in CLI and TUI (default)
+ui_auto_refresh_seconds: 5   # dashboard polling (0 = off)
+ui_watch_files: true      # fsnotify on working tree (default)
 
-# opcional — sobrescreve preços padrão do Gemini
+# optional — overrides default Gemini prices
 # input_price_per_1m: 0.14
 # output_price_per_1m: 0.28
 ```
 
-### Config local por repositório
+### Per-repository local config
 
-Crie `.gitai.yaml` na raiz do projeto. **Tem prioridade** sobre o config global.
+Create `.gitai.yaml` at the project root. **Takes priority** over global config.
 
-Útil para:
+Useful for:
 
-- Modelo diferente por projeto
-- Branch base `develop` em vez de `main`
-- Idioma `en-US` em projetos open source
+- Different model per project
+- Base branch `develop` instead of `main`
+- `en-US` language on open source projects
 
-### Variáveis de ambiente
+### Environment variables
 
-| Variável | Descrição |
-|----------|-----------|
-| `GITAI_API_KEY` | Sobrescreve `api_key` do YAML (recomendado em CI) |
-| `GITAI_CONFIG` | Caminho alternativo para o arquivo de config |
-| `GITAI_ROOT` | Caminho do clone gitai (usado por `gitai update` e `install.sh`) |
-| `GITAI_NO_CLEAR` | Desativa limpeza do terminal (`clear_screen` ignorado) |
-| `GITAI_NO_UI` | Força overview CLI em vez da TUI (`interactive_ui` ignorado) |
-| `NO_COLOR` | Desativa cores ANSI (convenção Unix; ver [no-color.org](https://no-color.org)) |
+| Variable | Description |
+|----------|-------------|
+| `GITAI_API_KEY` | Overrides YAML `api_key` (recommended in CI) |
+| `GITAI_CONFIG` | Alternate config file path |
+| `GITAI_ROOT` | Path to gitai clone (used by `gitai update` and `install.sh`) |
+| `GITAI_NO_CLEAR` | Disable terminal clear (`clear_screen` ignored) |
+| `GITAI_NO_UI` | Force CLI overview instead of TUI (`interactive_ui` ignored) |
+| `NO_COLOR` | Disable ANSI colors (Unix convention; see [no-color.org](https://no-color.org)) |
 
-Exemplo:
+Example:
 
 ```bash
 export GITAI_API_KEY="sk-or-v1-..."
@@ -297,36 +297,36 @@ export GITAI_CONFIG="$HOME/.config/gitai/work.yaml"
 gitai pr
 ```
 
-### Exibir configuração atual
+### Show current configuration
 
 ```bash
 gitai config show
 ```
 
-A API key é **mascarada** na saída (ex.: `sk-o...abcd`).
+The API key is **masked** in output (e.g. `sk-o...abcd`).
 
-### Referência completa dos campos
+### Full field reference
 
-| Campo | Tipo | Obrigatório | Default | Descrição |
-|-------|------|-------------|---------|-----------|
-| `provider` | string | sim | `openrouter` | `openai`, `gemini` ou `openrouter` |
-| `api_key` | string | sim* | — | Chave da API (* ou `GITAI_API_KEY`) |
-| `model` | string | sim | depende | Identificador do modelo no provider |
-| `language` | string | não | `pt-BR` | Idioma do commit e do PR |
-| `base_branch` | string | não | `main` | Branch base padrão para `gitai pr` |
-| `co_author` | string | não | vazio | Trailer no commit (ex.: `Co-authored-by: Nome <email@exemplo.com>`) |
-| `max_diff_bytes` | int | não | `120000` | Tamanho máximo do diff enviado à IA |
-| `clear_screen` | bool | não | `false` | Limpa o terminal antes de cada comando |
-| `interactive_ui` | bool | não | `true` | Abre TUI ao rodar `gitai` sem subcomando |
-| `ui_color` | bool | não | `true` | Cores ANSI na CLI e na TUI |
-| `ui_auto_refresh_seconds` | int | não | `5` | Polling do dashboard em segundos (`0` = off) |
-| `ui_watch_files` | bool | não | `true` | Observa mudanças no filesystem (fsnotify) |
-| `input_price_per_1m` | float | não | — | USD por 1M tokens de input (estimativa de custo) |
-| `output_price_per_1m` | float | não | — | USD por 1M tokens de output (estimativa de custo) |
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `provider` | string | yes | `openrouter` | `openai`, `gemini`, or `openrouter` |
+| `api_key` | string | yes* | — | API key (* or `GITAI_API_KEY`) |
+| `model` | string | yes | depends | Model identifier on the provider |
+| `language` | string | no | `pt-BR` | Commit and PR language |
+| `base_branch` | string | no | `main` | Default base branch for `gitai pr` |
+| `co_author` | string | no | empty | Commit trailer (e.g. `Co-authored-by: Name <email@example.com>`) |
+| `max_diff_bytes` | int | no | `120000` | Max diff size sent to AI |
+| `clear_screen` | bool | no | `false` | Clear terminal before each command |
+| `interactive_ui` | bool | no | `true` | Open TUI when running `gitai` with no subcommand |
+| `ui_color` | bool | no | `true` | ANSI colors in CLI and TUI |
+| `ui_auto_refresh_seconds` | int | no | `5` | Dashboard polling in seconds (`0` = off) |
+| `ui_watch_files` | bool | no | `true` | Watch filesystem changes (fsnotify) |
+| `input_price_per_1m` | float | no | — | USD per 1M input tokens (cost estimate) |
+| `output_price_per_1m` | float | no | — | USD per 1M output tokens (cost estimate) |
 
-### Models padrão por provider (wizard)
+### Default models per provider (wizard)
 
-| Provider | Model default |
+| Provider | Default model |
 |----------|---------------|
 | `openrouter` | `deepseek/deepseek-chat` |
 | `openai` | `gpt-4o-mini` |
@@ -334,113 +334,113 @@ A API key é **mascarada** na saída (ex.: `sk-o...abcd`).
 
 ---
 
-## Versionamento
+## Versioning
 
-A versão é **automática**, calculada pelo número de commits no repositório (sem tags git):
+Version is **automatic**, derived from the number of commits in the repository (no git tags):
 
-- 1º commit → `v0.1.0`
-- cada commit adicional incrementa o patch → ex.: 14 commits = `v0.1.13`
+- 1st commit → `v0.1.0`
+- each additional commit increments patch → e.g. 14 commits = `v0.1.13`
 
 ```bash
 gitai version
 ```
 
-Exibe versão, commit, total de commits e se a árvore está dirty.
+Shows version, commit, total commits, and whether the tree is dirty.
 
-O `go install` injeta versão e commit via `-ldflags` no build.
+`go install` injects version and commit via `-ldflags` at build time.
 
 ---
 
-## Referência de comandos
+## Command reference
 
-Rodar **`gitai` sem subcomando** dentro de um repositório git abre a **TUI fullscreen** (dashboard), com painéis:
+Running **`gitai` with no subcommand** inside a git repository opens the **fullscreen TUI** (dashboard) with panels:
 
 ![gitai TUI dashboard](docs/tui-dashboard.png)
 
-- **Git Graph** — branch atual vs base
-- **Repository Summary** — arquivos alterados e stats `+N · -M`
-- **Changed Files** — lista com dot leaders e stats por arquivo
-- **Recent Commits** — últimos 3 commits
-- **AI Engine** — provider, modelo e status
-- **Suggested Action** — próximo passo recomendado
+- **Git Graph** — current branch vs base
+- **Repository Summary** — changed files and `+N · -M` stats
+- **Changed Files** — list with dot leaders and per-file stats
+- **Recent Commits** — last 3 commits
+- **AI Engine** — provider, model, and status
+- **Suggested Action** — recommended next step
 
-### Atalhos do dashboard (TUI)
+### Dashboard shortcuts (TUI)
 
-| Tecla | Ação |
-|-------|------|
-| `c` | Commit com IA (preview → editar → confirmar) |
-| `p` | Push (preview → confirmar) |
-| `P` | Pull Request com IA (preview → editar → confirmar) |
-| `d` | Ver diff |
-| `b` | Trocar de branch (lista + contexto + checkout) |
-| `l` | Log de commits |
-| `y` | Copiar hash do HEAD |
-| `s` | Sync (quando behind) |
-| `o` | Abrir PR no browser |
-| `u` | Relatório de uso/custo de IA |
-| `r` | Atualizar dashboard |
-| `?` | Ajuda |
-| `q` | Sair |
+| Key | Action |
+|-----|--------|
+| `c` | AI commit (preview → edit → confirm) |
+| `p` | Push (preview → confirm) |
+| `P` | AI Pull Request (preview → edit → confirm) |
+| `d` | View diff |
+| `b` | Switch branch (list + context + checkout) |
+| `l` | Commit log |
+| `y` | Copy HEAD hash |
+| `s` | Sync (when behind) |
+| `o` | Open PR in browser |
+| `u` | AI usage/cost report |
+| `r` | Refresh dashboard |
+| `?` | Help |
+| `q` | Quit |
 
-Commit, push e PR passam por **preview com confirmação** (`Enter` confirma, `esc` cancela). No preview, `e` edita mensagem (commit/push) ou título/corpo (PR).
+Commit, push, and PR go through **preview with confirmation** (`Enter` confirms, `esc` cancels). On preview, `e` edits the message (commit/push) or title/body (PR).
 
-Com `GITAI_NO_UI=1` ou fora de um repo git, exibe o **overview CLI** (texto ANSI).
+With `GITAI_NO_UI=1` or outside a git repo, shows the **CLI overview** (ANSI text).
 
 ```
-gitai                 Dashboard TUI ou overview CLI (default)
-├── sync              fetch + pull da branch base (--prune para limpar branches)
-├── update            atualiza e reinstala o binário
-├── version           versão automática + commit
-├── report            relatório de uso e custos de IA
-├── status            alias para git status
-├── commit            gera commit com IA a partir do diff local
-├── push              commit (se houver diff) + push para origin
-├── pr                commit (se necessário) + push + PR detalhado via gh
-├── pricing           preços Gemini (update / show / report)
-│   ├── update        busca preços oficiais na web
-│   ├── show          exibe preços salvos
-│   └── report        alias de gitai report --all
-└── config            wizard de configuração (ou subcomandos init/show)
-    ├── init          wizard interativo (alias de gitai config)
-    └── show          exibe config ativa (key mascarada)
+gitai                 TUI dashboard or CLI overview (default)
+├── sync              fetch + pull base branch (--prune to clean branches)
+├── update            update and reinstall binary
+├── version           auto version + commit
+├── report            AI usage and cost report
+├── status            alias for git status
+├── commit            generate AI commit from local diff
+├── push              commit (if diff) + push to origin
+├── pr                commit (if needed) + push + detailed PR via gh
+├── pricing           Gemini prices (update / show / report)
+│   ├── update        fetch official prices from the web
+│   ├── show          show saved prices
+│   └── report        alias for gitai report --all
+└── config            configuration wizard (or init/show subcommands)
+    ├── init          interactive wizard (alias for gitai config)
+    └── show          show active config (masked key)
 ```
 
-> Instalação: `./install.sh` ou `curl -fsSL …/install.sh | bash`
+> Install: `./install.sh` or `curl -fsSL …/install.sh | bash`
 
-### Visão geral
+### Overview
 
-| Comando | O que faz | Chama IA? | Executa git? | Executa gh? |
-|---------|-----------|-----------|--------------|-------------|
-| `gitai` | Overview do repositório | não | leitura | não |
-| `gitai sync` | Sincroniza branch base com origin | não | `fetch`, `pull` | não |
-| `gitai sync --prune` | Sync + remove branches mergeadas (local e GitHub) | não | `fetch`, `pull`, `branch -d`, `push --delete` | não |
-| `gitai sync --prune-remote` | Sync + remove branches mergeadas só no GitHub | não | `fetch`, `pull`, `push --delete` | não |
-| `gitai version` | Exibe versão, commit e commits | não | leitura | não |
-| `gitai report` | Relatório de uso/custo de IA | não | leitura | não |
-| `gitai pricing update` | Atualiza tabela de preços Gemini | não | não | não |
-| `gitai commit` | Commit com mensagem gerada | 1× (commit) | `add`, `commit` | não |
-| `gitai push` | Commit (se houver diff) + push | 0–1× | `add`, `commit`, `push` | não |
+| Command | What it does | Calls AI? | Runs git? | Runs gh? |
+|---------|--------------|-----------|-----------|----------|
+| `gitai` | Repository overview | no | read-only | no |
+| `gitai sync` | Sync base branch with origin | no | `fetch`, `pull` | no |
+| `gitai sync --prune` | Sync + remove merged branches (local and GitHub) | no | `fetch`, `pull`, `branch -d`, `push --delete` | no |
+| `gitai sync --prune-remote` | Sync + remove merged branches on GitHub only | no | `fetch`, `pull`, `push --delete` | no |
+| `gitai version` | Show version, commit, and commit count | no | read-only | no |
+| `gitai report` | AI usage/cost report | no | read-only | no |
+| `gitai pricing update` | Update Gemini price table | no | no | no |
+| `gitai commit` | Commit with generated message | 1× (commit) | `add`, `commit` | no |
+| `gitai push` | Commit (if diff) + push | 0–1× | `add`, `commit`, `push` | no |
 | `gitai pr` | Commit + push + PR | 1–2× (commit + PR) | `add`, `commit`, `push` | `pr create` |
-| `gitai status` | Exibe status do repositório | não | `status` | não |
-| `gitai config` | Cria/atualiza config.yaml | não | não | não |
-| `gitai config init` | Igual a `gitai config` | não | não | não |
-| `gitai config show` | Mostra config | não | não | não |
-| `gitai update` | Atualiza e reinstala binário | não | não | não |
+| `gitai status` | Show repository status | no | `status` | no |
+| `gitai config` | Create/update config.yaml | no | no | no |
+| `gitai config init` | Same as `gitai config` | no | no | no |
+| `gitai config show` | Show config | no | no | no |
+| `gitai update` | Update and reinstall binary | no | no | no |
 
 ---
 
-## Flags globais e por comando
+## Global and per-command flags
 
-### Flags globais (válidas em todos os comandos)
+### Global flags (valid on all commands)
 
-Disponíveis em `commit`, `push` e `pr`:
+Available on `commit`, `push`, and `pr`:
 
-| Flag | Tipo | Default | Descrição |
-|------|------|---------|-----------|
-| `--dry-run` | bool | `false` | Simula o fluxo: chama a IA, exibe o que seria executado, **não** roda `git commit`, `git push` nem `gh pr create` |
-| `--verbose` | bool | `false` | Exibe JSON parseado da IA (type, scope, title, bullets do commit ou seções do PR) |
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--dry-run` | bool | `false` | Simulates the flow: calls AI, shows what would run, **does not** run `git commit`, `git push`, or `gh pr create` |
+| `--verbose` | bool | `false` | Shows parsed AI JSON (type, scope, title, commit bullets or PR sections) |
 
-Exemplos:
+Examples:
 
 ```bash
 gitai commit --dry-run
@@ -448,42 +448,42 @@ gitai pr --verbose --dry-run
 gitai push --verbose
 ```
 
-### Flags do `gitai commit`
+### `gitai commit` flags
 
-| Flag | Tipo | Default | Descrição |
-|------|------|---------|-----------|
-| `--no-add` | bool | `false` | Não executa `git add .` — usa apenas arquivos já staged (ou unstaged como fallback) |
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--no-add` | bool | `false` | Skip `git add .` — use only already staged files (or unstaged as fallback) |
 
 ```bash
 git add src/auth.go
 gitai commit --no-add
 ```
 
-### Flags do `gitai push`
+### `gitai push` flags
 
-Herda todas as flags de `commit`:
+Inherits all `commit` flags:
 
-| Flag | Tipo | Default | Descrição |
-|------|------|---------|-----------|
-| `--no-add` | bool | `false` | Não executa `git add .` antes do commit |
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--no-add` | bool | `false` | Skip `git add .` before commit |
 
-Após o commit, executa:
+After commit, runs:
 
 ```bash
 git push -u origin HEAD
 ```
 
-### Flags do `gitai pr`
+### `gitai pr` flags
 
-Herda flags globais e `--no-add`, mais:
+Inherits global flags and `--no-add`, plus:
 
-| Flag | Tipo | Default | Descrição |
-|------|------|---------|-----------|
-| `--no-add` | bool | `false` | Não executa `git add .` |
-| `--draft` | bool | `false` | Cria o PR como **draft** (`gh pr create --draft`) |
-| `--base` | string | `base_branch` do config | Branch base do PR (ex.: `main`, `develop`) |
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--no-add` | bool | `false` | Skip `git add .` |
+| `--draft` | bool | `false` | Create PR as **draft** (`gh pr create --draft`) |
+| `--base` | string | config `base_branch` | PR base branch (e.g. `main`, `develop`) |
 
-Exemplos:
+Examples:
 
 ```bash
 gitai pr
@@ -492,31 +492,31 @@ gitai pr --base develop
 gitai pr --no-add --draft --base main --verbose --dry-run
 ```
 
-### Combinando flags
+### Combining flags
 
 ```bash
-# Preview completo do fluxo pr sem alterar nada
+# Full pr flow preview without changing anything
 gitai pr --dry-run --verbose
 
-# Commit só do que já está staged, sem push
+# Commit only what is already staged, no push
 gitai commit --no-add
 
-# PR draft contra develop, sem git add
+# Draft PR against develop, no git add
 git add .
 gitai pr --no-add --draft --base develop
 ```
 
-### Flags do `gitai report`
+### `gitai report` flags
 
-| Flag | Descrição |
-|------|-----------|
-| `--hour` | Última hora |
-| `--hours N` | Últimas N horas |
-| `--days N` | Últimos N dias |
-| `--month` | Mês atual (calendário) |
-| `--all` | Todo o histórico |
+| Flag | Description |
+|------|-------------|
+| `--hour` | Last hour |
+| `--hours N` | Last N hours |
+| `--days N` | Last N days |
+| `--month` | Current calendar month |
+| `--all` | Full history |
 
-Padrão (sem flags): **últimas 24 horas**.
+Default (no flags): **last 24 hours**.
 
 ```bash
 gitai report
@@ -527,52 +527,52 @@ gitai report --all
 
 ---
 
-## Uso detalhado
+## Detailed usage
 
-### Fluxo recomendado (dia a dia)
+### Recommended daily workflow
 
 ```bash
-# 1. Trabalhe na sua feature branch
-git checkout -b feat/minha-feature
+# 1. Work on your feature branch
+git checkout -b feat/my-feature
 
-# 2. Faça suas alterações no código
+# 2. Make your code changes
 
-# 3. Commit + push + PR em um comando
+# 3. Commit + push + PR in one command
 gitai pr
 ```
 
-O `gitai pr` executa internamente:
+`gitai pr` runs internally:
 
 ```
 git add .
     ↓
-[se houver alterações staged]
-    → IA gera mensagem de commit → git commit
+[if there are staged changes]
+    → AI generates commit message → git commit
     ↓
 git push -u origin HEAD
     ↓
-git diff base...HEAD  (+ log de commits da branch)
+git diff base...HEAD  (+ branch commit log)
     ↓
-IA gera PR detalhado (title, summary, changes, test plan, notes)
+AI generates detailed PR (title, summary, changes, test plan, notes)
     ↓
 gh pr create --title "..." --body "..." --base main
     ↓
-Exibe resumo de tokens e custo
+Shows token and cost summary
 ```
 
 ### `gitai commit`
 
-**Quando usar:** só quer commitar, sem push nem PR.
+**When to use:** commit only, no push or PR.
 
-**Fluxo:**
+**Flow:**
 
-1. `git add .` (salvo com `--no-add`)
-2. Obtém diff staged (ou unstaged se nada staged)
-3. Envia diff à IA → Conventional Commit
+1. `git add .` (unless `--no-add`)
+2. Get staged diff (or unstaged if nothing staged)
+3. Send diff to AI → Conventional Commit
 4. `git commit -m "..."`
-5. Exibe resumo de tokens/custo
+5. Show token/cost summary
 
-**Diff usado:** alterações locais pendentes (staged prioritário).
+**Diff used:** pending local changes (staged preferred).
 
 ```bash
 gitai commit
@@ -580,20 +580,20 @@ gitai commit --no-add
 gitai commit --dry-run --verbose
 ```
 
-**Erros comuns:**
+**Common errors:**
 
-- `nenhuma alteração para commitar` — working tree limpa
-- `diretório atual não é um repositório git` — rode dentro de um repo git
+- `no changes to commit` — clean working tree
+- `current directory is not a git repository` — run inside a git repo
 
 ---
 
 ### `gitai push`
 
-**Quando usar:** enviar branch para origin. Se houver alterações pendentes, commita antes; senão faz push dos commits existentes.
+**When to use:** push branch to origin. If there are pending changes, commits first; otherwise pushes existing commits.
 
-**Na TUI:** preview com confirmação antes de executar (igual ao PR).
+**In the TUI:** preview with confirmation before execution (same as PR).
 
-**Fluxo:** `git add .` (se não `--no-add`) → commit com IA (só se houver diff) → `git push -u origin HEAD`.
+**Flow:** `git add .` (unless `--no-add`) → AI commit (only if diff) → `git push -u origin HEAD`.
 
 ```bash
 gitai push
@@ -601,33 +601,33 @@ gitai push --no-add
 gitai push --dry-run
 ```
 
-> O resumo de tokens/custo é exibido após o commit (dentro do fluxo push). O push em si não consome IA.
+> Token/cost summary is shown after commit (inside the push flow). Push itself does not consume AI.
 
 ---
 
-### `gitai pr` (comando principal)
+### `gitai pr` (main command)
 
-**Quando usar:** finalizar trabalho na branch — commit pendente, push e PR detalhado.
+**When to use:** finish work on the branch — pending commit, push, and detailed PR.
 
-**Na TUI:** preview editável (título, corpo markdown, toggle draft) com confirmação antes de criar o PR.
+**In the TUI:** editable preview (title, markdown body, draft toggle) with confirmation before creating the PR.
 
-**Fluxo inteligente:**
+**Smart flow:**
 
-| Situação | Comportamento |
-|----------|---------------|
-| Alterações não commitadas | `git add .` → IA gera commit → commit |
-| Só commits na branch, nada pendente | Pula commit, usa commits existentes |
-| Branch igual à base, sem mudanças | Erro: `nenhuma alteração em relação à main` |
+| Situation | Behavior |
+|-----------|----------|
+| Uncommitted changes | `git add .` → AI commit → commit |
+| Only branch commits, nothing pending | Skip commit, use existing commits |
+| Branch equals base, no changes | Error: `no changes relative to main` |
 
-**Diff usado para o PR:** `git diff base...HEAD` — **todas** as alterações da branch em relação à base, não só o último commit.
+**Diff used for PR:** `git diff base...HEAD` — **all** branch changes vs base, not just the last commit.
 
-**Diff usado para o commit (quando há staged):** apenas o diff staged atual.
+**Diff used for commit (when staged):** only the current staged diff.
 
-**Resolução da branch base:**
+**Base branch resolution:**
 
-1. Tenta `main` (ou valor de `--base` / config)
-2. Tenta `origin/main`
-3. Erro se nenhuma existir → rode `git fetch`
+1. Try `main` (or `--base` / config value)
+2. Try `origin/main`
+3. Error if neither exists → run `git fetch`
 
 ```bash
 gitai pr
@@ -636,34 +636,34 @@ gitai pr --base develop
 gitai pr --verbose --dry-run
 ```
 
-**Body do PR gerado:**
+**Generated PR body:**
 
 ```markdown
 ## Summary
-- visão geral e impacto
+- overview and impact
 
 ## Changes
-- detalhes técnicos por área
+- technical details by area
 
 ## Test plan
-- [ ] passo 1
-- [ ] passo 2
+- [ ] step 1
+- [ ] step 2
 
 ## Notes
-- riscos ou follow-ups (se houver)
+- risks or follow-ups (if any)
 ```
 
-**Erros comuns:**
+**Common errors:**
 
-- `PR já existe: https://...` — branch já tem PR aberto
-- `branch base "main" não encontrada` — rode `git fetch origin`
-- `config não encontrada` — rode `gitai config init`
+- `PR already exists: https://...` — branch already has an open PR
+- `base branch "main" not found` — run `git fetch origin`
+- `config not found` — run `gitai config init`
 
 ---
 
 ### `gitai config init`
 
-Wizard interativo. Não altera repositórios git — só cria/atualiza o YAML global.
+Interactive wizard. Does not change git repositories — only creates/updates global YAML.
 
 ```bash
 gitai config init
@@ -671,7 +671,7 @@ gitai config init
 
 ### `gitai config show`
 
-Carrega a config efetiva (local `.gitai.yaml` ou global) e imprime com key mascarada.
+Loads effective config (local `.gitai.yaml` or global) and prints with masked key.
 
 ```bash
 gitai config show
@@ -679,48 +679,48 @@ gitai config show
 
 ---
 
-## Uso de tokens e custo
+## Token usage and cost
 
-### Prévia (antes da IA)
+### Estimate (before AI)
 
-Antes do passo `Thinking`, o gitai exibe uma estimativa:
-
-```
-Estimativa: ~1750 tokens · $0.000275 USD (Gemini) (input ~1500 + output ~250)
-```
-
-### Após execução
-
-Ao final de **`commit`**, **`push`** e **`pr`**:
+Before the `Thinking` step, gitai shows an estimate:
 
 ```
-Uso de IA
+Estimate: ~1750 tokens · $0.000275 USD (Gemini) (input ~1500 + output ~250)
+```
+
+### After execution
+
+At the end of **`commit`**, **`push`**, and **`pr`**:
+
+```
+AI usage
 • commit: 8420 prompt + 186 completion = 8606 tokens | $0.000412 USD (Gemini)
-• Total: 8606 prompt + 186 completion = 8792 tokens | custo total: $0.000412 USD
+• Total: 8606 prompt + 186 completion = 8792 tokens | total cost: $0.000412 USD
 ```
 
-Cada chamada é registrada em `~/.config/gitai/usage/ledger.csv` para o `gitai report`.
+Each call is logged to `~/.config/gitai/usage/ledger.csv` for `gitai report`.
 
-### Como o custo é calculado
+### How cost is calculated
 
-| Provider | Tokens | Custo |
-|----------|--------|-------|
+| Provider | Tokens | Cost |
+|----------|--------|------|
 | **OpenRouter** | `usage.*` | Real via `usage.cost` (USD) |
-| **OpenAI** | `usage.*` | Estimativa (preços padrão ou config) |
-| **Gemini** | `usageMetadata.*` | Estimativa com preços padrão ou `gitai pricing update` |
+| **OpenAI** | `usage.*` | Estimate (default or config prices) |
+| **Gemini** | `usageMetadata.*` | Estimate with defaults or `gitai pricing update` |
 
-### Preços do Gemini
+### Gemini prices
 
 ```bash
-gitai pricing update   # busca preços oficiais e salva em ~/.config/gitai/pricing.yaml
-gitai pricing show     # exibe tabela salva
+gitai pricing update   # fetch official prices and save to ~/.config/gitai/pricing.yaml
+gitai pricing show     # show saved table
 ```
 
-Modelos com preços padrão embutidos (ex.: `gemini-2.5-flash-lite` → $0.10 / $0.40 por 1M tokens).
+Models with built-in default prices (e.g. `gemini-2.5-flash-lite` → $0.10 / $0.40 per 1M tokens).
 
-### Estimativa manual (override)
+### Manual estimate (override)
 
-Adicione ao config para sobrescrever qualquer provider:
+Add to config to override any provider:
 
 ```yaml
 input_price_per_1m: 0.15
@@ -729,26 +729,26 @@ output_price_per_1m: 0.60
 
 ### Retries
 
-| Tipo | Comportamento |
-|------|---------------|
-| **API indisponível** (503, 429, etc.) | Até **3 tentativas**, **3s** entre cada |
-| **JSON inválido da IA** | Até 2 tentativas de parse (consome tokens extras) |
+| Type | Behavior |
+|------|----------|
+| **API unavailable** (503, 429, etc.) | Up to **3 attempts**, **3s** between each |
+| **Invalid AI JSON** | Up to 2 parse retries (consumes extra tokens) |
 
 ### `--dry-run`
 
-A IA **é chamada** (você vê tokens/custo e registro no ledger), mas git/gh **não executam**.
+AI **is called** (you see tokens/cost and ledger entry), but git/gh **do not run**.
 
 ---
 
-## Providers de IA
+## AI providers
 
-| Provider | Model recomendado | Custo típico | Custo na resposta |
-|----------|-------------------|--------------|-------------------|
-| `openrouter` | `deepseek/deepseek-chat` | Muito barato | Sim (`usage.cost`) |
-| `openai` | `gpt-4o-mini` | Barato | Não (só tokens) |
-| `gemini` | `gemini-2.5-flash-lite` | Barato | Não (só tokens) |
+| Provider | Recommended model | Typical cost | Cost in response |
+|----------|-------------------|--------------|------------------|
+| `openrouter` | `deepseek/deepseek-chat` | Very cheap | Yes (`usage.cost`) |
+| `openai` | `gpt-4o-mini` | Cheap | No (tokens only) |
+| `gemini` | `gemini-2.5-flash-lite` | Cheap | No (tokens only) |
 
-### OpenRouter (recomendado)
+### OpenRouter (recommended)
 
 ```yaml
 provider: openrouter
@@ -756,7 +756,7 @@ api_key: "sk-or-v1-..."
 model: "deepseek/deepseek-chat"
 ```
 
-Obtenha a key em: https://openrouter.ai/keys
+Get a key at: https://openrouter.ai/keys
 
 ### OpenAI
 
@@ -776,35 +776,37 @@ api_key: "AIza..."
 model: "gemini-2.5-flash-lite"
 ```
 
-Preços padrão embutidos ($0.10 input / $0.40 output por 1M tokens). Atualize com `gitai pricing update`.
+Built-in default prices ($0.10 input / $0.40 output per 1M tokens). Update with `gitai pricing update`.
 
 ---
 
-## Formato do commit e do PR
+## Commit and PR format
 
 ### Conventional Commit
 
-A IA retorna JSON e o gitai formata:
+AI returns JSON and gitai formats:
 
 ```
-fix(leads): não cria clientes com corretor inválido
+fix(leads): do not create clients with invalid broker
 
-- evita violação da FK
-- define corretor como null quando inválido
+- avoids FK violation
+- sets broker to null when invalid
 
-Co-authored-by: Nome <email@exemplo.com>
+Co-authored-by: Name <email@example.com>
 ```
 
-Tipos aceitos: `fix`, `feat`, `refactor`, `docs`, `test`, `chore`, `perf`, `ci`, `build`, `style`.
+Accepted types: `fix`, `feat`, `refactor`, `docs`, `test`, `chore`, `perf`, `ci`, `build`, `style`.
 
 ### Pull Request
 
-| Seção | Conteúdo |
-|-------|----------|
-| **Summary** | 2–4 bullets — porquê e impacto de negócio |
-| **Changes** | 3–8 bullets técnicos por área/arquivo |
-| **Test plan** | Checklist acionável para validação |
-| **Notes** | Riscos, breaking changes, migrations (opcional) |
+| Section | Content |
+|---------|---------|
+| **Summary** | 2–4 bullets — why and business impact |
+| **Changes** | 3–8 technical bullets by area/file |
+| **Test plan** | Actionable checklist for validation |
+| **Notes** | Risks, breaking changes, migrations (optional) |
+
+> Commit and PR **language** follows the `language` field in `gitai config` (default `pt-BR`). The TUI itself is always in English.
 
 ---
 
@@ -812,47 +814,47 @@ Tipos aceitos: `fix`, `feat`, `refactor`, `docs`, `test`, `chore`, `perf`, `ci`,
 
 ### `gitai: command not found`
 
-Rode o instalador ou adicione ao PATH:
+Run the installer or add to PATH:
 
 ```bash
 ./install.sh
-# ou
+# or
 export PATH="$HOME/sdk/go/bin:$PATH:$HOME/go/bin"
 source ~/.zshrc
 ```
 
-### `config não encontrada. Execute: gitai config init`
+### `config not found. Run: gitai config init`
 
 ```bash
 gitai config init
 ```
 
-### `api_key não configurada`
+### `api_key not configured`
 
-Defina no YAML ou:
+Set in YAML or:
 
 ```bash
-export GITAI_API_KEY="sua-chave"
+export GITAI_API_KEY="your-key"
 ```
 
-### `branch base "main" não encontrada`
+### `base branch "main" not found`
 
 ```bash
 git fetch origin
-git branch -a   # confirme origin/main
+git branch -a   # confirm origin/main
 ```
 
-Ou ajuste no config / flag:
+Or adjust in config / flag:
 
 ```bash
 gitai pr --base develop
 ```
 
-### `PR já existe`
+### `PR already exists`
 
-A branch já tem PR. Abra o link exibido ou feche/merge o PR existente.
+The branch already has a PR. Open the displayed link or close/merge the existing PR.
 
-### `gh: command not found` ou erro de autenticação
+### `gh: command not found` or auth error
 
 ```bash
 brew install gh        # macOS
@@ -860,36 +862,36 @@ gh auth login
 gh auth status
 ```
 
-### Diff truncado
+### Truncated diff
 
-Aumente no config:
+Increase in config:
 
 ```yaml
 max_diff_bytes: 200000
 ```
 
-### Custo não aparece
+### Cost not shown
 
-- Use **OpenRouter** para custo real automático
-- Rode `gitai pricing update` para Gemini
-- Ou configure `input_price_per_1m` e `output_price_per_1m` no YAML
+- Use **OpenRouter** for automatic real cost
+- Run `gitai pricing update` for Gemini
+- Or set `input_price_per_1m` and `output_price_per_1m` in YAML
 
-### `gitai report` vazio
+### Empty `gitai report`
 
-O ledger só é preenchido após rodar `commit`, `push` ou `pr` com IA. Verifique `~/.config/gitai/usage/ledger.csv`.
-
----
-
-## Segurança
-
-- **Nunca** commite `config.yaml` ou `.gitai.yaml` com API keys
-- Adicione `.gitai.yaml` ao `.gitignore` se contiver secrets locais
-- Prefira `GITAI_API_KEY` em CI e ambientes compartilhados
-- `gitai config show` mascara a key (`sk-o...abcd`)
-- O config global é salvo com permissão `0600` (só o usuário lê)
+The ledger is only filled after running `commit`, `push`, or `pr` with AI. Check `~/.config/gitai/usage/ledger.csv`.
 
 ---
 
-## Licença
+## Security
+
+- **Never** commit `config.yaml` or `.gitai.yaml` with API keys
+- Add `.gitai.yaml` to `.gitignore` if it contains local secrets
+- Prefer `GITAI_API_KEY` in CI and shared environments
+- `gitai config show` masks the key (`sk-o...abcd`)
+- Global config is saved with permission `0600` (user read only)
+
+---
+
+## License
 
 MIT
