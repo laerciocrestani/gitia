@@ -68,6 +68,44 @@ func (c *Client) OpenInBrowser() (*PRView, error) {
 	return view, nil
 }
 
+// ListOpen returns all open pull requests keyed by head branch name.
+func (c *Client) ListOpen() (map[string]PRView, error) {
+	out, err := c.run("pr", "list", "--state", "open", "--json", "title,url,state,number,isDraft,headRefName")
+	if err != nil {
+		if isPRNotFound(err) {
+			return map[string]PRView{}, nil
+		}
+		return nil, err
+	}
+
+	var raw []struct {
+		Title       string `json:"title"`
+		URL         string `json:"url"`
+		State       string `json:"state"`
+		Number      int    `json:"number"`
+		IsDraft     bool   `json:"isDraft"`
+		HeadRefName string `json:"headRefName"`
+	}
+	if err := json.Unmarshal([]byte(out), &raw); err != nil {
+		return nil, err
+	}
+
+	byHead := make(map[string]PRView, len(raw))
+	for _, item := range raw {
+		if item.HeadRefName == "" {
+			continue
+		}
+		byHead[item.HeadRefName] = PRView{
+			URL:     item.URL,
+			Title:   item.Title,
+			State:   item.State,
+			Number:  item.Number,
+			IsDraft: item.IsDraft,
+		}
+	}
+	return byHead, nil
+}
+
 func (c *Client) ViewCurrent() (*PRView, error) {
 	out, err := c.run("pr", "view", "--json", "title,url,state,number,isDraft")
 	if err != nil {

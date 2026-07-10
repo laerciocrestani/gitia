@@ -20,7 +20,7 @@ const (
 
 type branchesModel struct {
 	snap           *app.WorkspaceSnapshot
-	branches       []gitpkg.BranchInfo
+	branches       []gitpkg.BranchSummary
 	base           string
 	cursor         int
 	listViewport   viewport.Model
@@ -79,10 +79,12 @@ func (m *branchesModel) Load(snap *app.WorkspaceSnapshot) tea.Cmd {
 	m.mode = branchesModeList
 	m.newErr = nil
 
-	if branches, err := app.ListBranches(); err == nil && len(branches) > 0 {
+	if branches, err := app.ListBranchSummaries(snap); err == nil && len(branches) > 0 {
 		m.branches = branches
 	} else if snap != nil && snap.Overview != nil {
-		m.branches = append([]gitpkg.BranchInfo(nil), snap.Overview.Branches...)
+		for _, b := range snap.Overview.Branches {
+			m.branches = append(m.branches, gitpkg.BranchSummary{BranchInfo: b})
+		}
 	}
 
 	if snap != nil && snap.Overview != nil {
@@ -187,11 +189,18 @@ func (m *branchesModel) syncScroll() {
 	}
 }
 
-func (m *branchesModel) selectedBranch() string {
+func (m *branchesModel) selectedSummary() *gitpkg.BranchSummary {
 	if m.cursor < 0 || m.cursor >= len(m.branches) {
-		return ""
+		return nil
 	}
-	return m.branches[m.cursor].Name
+	return &m.branches[m.cursor]
+}
+
+func (m *branchesModel) selectedBranch() string {
+	if summary := m.selectedSummary(); summary != nil {
+		return summary.Name
+	}
+	return ""
 }
 
 func (m *branchesModel) isCurrentSelected() bool {
@@ -308,9 +317,9 @@ func (m branchesModel) View(width, tick int) string {
 
 	selected := m.selectedBranch()
 	if m.detailLoading || m.detailFor != selected {
-		b.WriteString(components.RenderBranchDetail(nil, selected, m.base, width, tick))
+		b.WriteString(components.RenderBranchDetail(nil, m.selectedSummary(), selected, m.base, width, tick))
 	} else {
-		b.WriteString(components.RenderBranchDetail(m.detail, selected, m.base, width, tick))
+		b.WriteString(components.RenderBranchDetail(m.detail, m.selectedSummary(), selected, m.base, width, tick))
 	}
 
 	return b.String()

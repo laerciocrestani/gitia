@@ -24,7 +24,7 @@ func RenderBranchesPanel(cursor, total int, base, body string, width int) string
 }
 
 // RenderBranchDetail renders contextual information for the selected branch.
-func RenderBranchDetail(detail *gitpkg.BranchDetail, branchName, base string, width, tick int) string {
+func RenderBranchDetail(detail *gitpkg.BranchDetail, summary *gitpkg.BranchSummary, branchName, base string, width, tick int) string {
 	title := "Context"
 	if branchName != "" {
 		title += " · " + branchName
@@ -41,6 +41,13 @@ func RenderBranchDetail(detail *gitpkg.BranchDetail, branchName, base string, wi
 	var lines []string
 	if base == "" {
 		base = "main"
+	}
+
+	if summary != nil {
+		lines = append(lines, "  "+RenderBranchStageBadge(*summary))
+		if stageHint := branchStageDetailHint(*summary, base); stageHint != "" {
+			lines = append(lines, theme.S.Hint.Render("  "+stageHint))
+		}
 	}
 
 	headLine := detail.HeadHash
@@ -88,7 +95,8 @@ func RenderBranchDetail(detail *gitpkg.BranchDetail, branchName, base string, wi
 }
 
 // RenderBranchListLine renders a single branch entry for the picker list.
-func RenderBranchListLine(info gitpkg.BranchInfo, selected bool) string {
+func RenderBranchListLine(summary gitpkg.BranchSummary, selected bool) string {
+	info := summary.BranchInfo
 	prefix := "  "
 	if selected {
 		prefix = theme.S.Current.Render("> ")
@@ -104,6 +112,9 @@ func RenderBranchListLine(info gitpkg.BranchInfo, selected bool) string {
 	}
 
 	line := prefix + name
+	if summary.Stage != gitpkg.StageBase {
+		line += "  " + RenderBranchStageBadge(summary)
+	}
 	if info.Upstream != "" {
 		line += theme.S.Hint.Render("  → " + info.Upstream)
 	}
@@ -113,9 +124,88 @@ func RenderBranchListLine(info gitpkg.BranchInfo, selected bool) string {
 	return line
 }
 
+// RenderBranchStageBadge renders the compact lifecycle badge for a branch.
+func RenderBranchStageBadge(summary gitpkg.BranchSummary) string {
+	label := branchStageLabel(summary)
+	switch summary.Stage {
+	case gitpkg.StageWIP, gitpkg.StageSync:
+		return theme.S.Warn.Render(label)
+	case gitpkg.StagePush, gitpkg.StageReady:
+		return theme.S.Info.Render(label)
+	case gitpkg.StagePROpen, gitpkg.StageOK:
+		return theme.S.Success.Render(label)
+	case gitpkg.StagePRDraft, gitpkg.StageMerged, gitpkg.StageStale:
+		return theme.S.Hint.Render(label)
+	case gitpkg.StageBase:
+		return theme.S.Hint.Render(label)
+	default:
+		return theme.S.Hint.Render(label)
+	}
+}
+
+func branchStageLabel(summary gitpkg.BranchSummary) string {
+	switch summary.Stage {
+	case gitpkg.StageBase:
+		return "base"
+	case gitpkg.StageWIP:
+		return "wip"
+	case gitpkg.StageMerged:
+		return "merged"
+	case gitpkg.StagePROpen:
+		if summary.PRNumber > 0 {
+			return fmt.Sprintf("PR #%d", summary.PRNumber)
+		}
+		return "PR open"
+	case gitpkg.StagePRDraft:
+		if summary.PRNumber > 0 {
+			return fmt.Sprintf("draft #%d", summary.PRNumber)
+		}
+		return "draft"
+	case gitpkg.StagePush:
+		return "push"
+	case gitpkg.StageSync:
+		return "sync"
+	case gitpkg.StageReady:
+		return "ready"
+	case gitpkg.StageOK:
+		return "ok"
+	case gitpkg.StageStale:
+		return "stale"
+	default:
+		return string(summary.Stage)
+	}
+}
+
+func branchStageDetailHint(summary gitpkg.BranchSummary, base string) string {
+	switch summary.Stage {
+	case gitpkg.StageWIP:
+		return "uncommitted changes on current branch"
+	case gitpkg.StagePush:
+		return "local commits not pushed to remote"
+	case gitpkg.StageSync:
+		return "behind remote — run sync"
+	case gitpkg.StagePROpen:
+		return "pull request open on GitHub"
+	case gitpkg.StagePRDraft:
+		return "draft pull request open on GitHub"
+	case gitpkg.StageMerged:
+		return "merged into " + base
+	case gitpkg.StageReady:
+		return fmt.Sprintf("%d commit(s) ahead of %s — ready for PR", summary.CommitsAheadOfBase, base)
+	case gitpkg.StageOK:
+		return "aligned with " + base
+	case gitpkg.StageStale:
+		return "local branch without upstream"
+	case gitpkg.StageBase:
+		return "base branch"
+	default:
+		return ""
+	}
+}
+
 // RenderBranchListLineNumbered renders a branch row with its position in the list.
-func RenderBranchListLineNumbered(index int, info gitpkg.BranchInfo, selected bool) string {
+func RenderBranchListLineNumbered(index int, summary gitpkg.BranchSummary, selected bool) string {
 	num := fmt.Sprintf("%2d", index+1)
-	line := RenderBranchListLine(info, selected)
+	line := RenderBranchListLine(summary, selected)
 	return "  " + theme.S.Hint.Render(num) + strings.TrimPrefix(line, "  ")
 }
