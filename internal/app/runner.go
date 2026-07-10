@@ -343,7 +343,7 @@ func RunPR(ctx context.Context, opts Options) (*Result, error) {
 			return nil, err
 		}
 
-		prog.Detail(ai.DescribePreparedInput(cfg, diff, "pr"))
+		prog.Detail(ai.DescribePreparedInput(cfg, diff, "", "pr"))
 		if err := prog.Step("Thinking", func() error {
 			prSuggestion, err = provider.SuggestPR(ctx, diff, branch, baseForGH(resolvedBase), cfg.Language, commitLog)
 			return err
@@ -424,6 +424,7 @@ func commitFlow(ctx context.Context, opts Options, prog Progress) (*Result, ai.P
 	}
 
 	var diff string
+	var diffStat string
 	if opts.CachedCommitMessage == "" {
 		if err := prog.Step("Reading git diff", func() error {
 			var err error
@@ -434,7 +435,8 @@ func commitFlow(ctx context.Context, opts Options, prog Progress) (*Result, ai.P
 			if diff == "" {
 				return fmt.Errorf("nenhuma alteração para commitar")
 			}
-			return nil
+			diffStat, err = repo.DiffStatForCommit()
+			return err
 		}); err != nil {
 			return nil, nil, err
 		}
@@ -451,9 +453,10 @@ func commitFlow(ctx context.Context, opts Options, prog Progress) (*Result, ai.P
 	if opts.CachedCommitMessage != "" {
 		message = opts.CachedCommitMessage
 	} else {
-		prog.Detail(ai.DescribePreparedInput(cfg, diff, "commit"))
+		warnSplitCommit(prog, diffStat)
+		prog.Detail(ai.DescribePreparedInput(cfg, diff, diffStat, "commit"))
 		if err := prog.Step("Thinking", func() error {
-			suggestion, err = provider.SuggestCommit(ctx, diff, cfg.Language)
+			suggestion, err = provider.SuggestCommit(ctx, diff, diffStat, cfg.Language)
 			return err
 		}); err != nil {
 			return nil, nil, err
@@ -461,6 +464,7 @@ func commitFlow(ctx context.Context, opts Options, prog Progress) (*Result, ai.P
 		if line := ai.FormatLatestUsage(provider.UsageStats()); line != "" {
 			prog.Detail(line)
 		}
+		showCommitNotes(prog, suggestion)
 		message = formatter.FormatCommit(suggestion, cfg.CoAuthor)
 	}
 
@@ -509,9 +513,15 @@ func commitStaged(ctx context.Context, cfg *config.Config, repo *gitpkg.Repo, op
 			return nil, err
 		}
 
-		prog.Detail(ai.DescribePreparedInput(cfg, diff, "commit"))
+		diffStat, err := repo.DiffStatStaged()
+		if err != nil {
+			return nil, err
+		}
+
+		warnSplitCommit(prog, diffStat)
+		prog.Detail(ai.DescribePreparedInput(cfg, diff, diffStat, "commit"))
 		if err := prog.Step("Thinking", func() error {
-			suggestion, err = provider.SuggestCommit(ctx, diff, cfg.Language)
+			suggestion, err = provider.SuggestCommit(ctx, diff, diffStat, cfg.Language)
 			return err
 		}); err != nil {
 			return nil, err
@@ -519,6 +529,7 @@ func commitStaged(ctx context.Context, cfg *config.Config, repo *gitpkg.Repo, op
 		if line := ai.FormatLatestUsage(provider.UsageStats()); line != "" {
 			prog.Detail(line)
 		}
+		showCommitNotes(prog, suggestion)
 		message = formatter.FormatCommit(suggestion, cfg.CoAuthor)
 	}
 
@@ -550,8 +561,39 @@ func printCommitVerbose(s *ai.CommitSuggestion, message string) {
 	for _, b := range s.Body {
 		fmt.Printf("  - %s\n", b)
 	}
+	if len(s.Notes) > 0 {
+		fmt.Println("notes:")
+		for _, n := range s.Notes {
+			fmt.Printf("  - %s\n", n)
+		}
+	}
 	fmt.Println("--- Mensagem ---")
 	fmt.Println(message)
+}
+
+func warnSplitCommit(prog Progress, diffStat string) {
+	if prog == nil || strings.TrimSpace(diffStat) == "" {
+		return
+	}
+	areas := ai.ChangeAreasFromStat(diffStat)
+	if !ai.ShouldSuggestSplit(areas) {
+		return
+	}
+	if msg := ai.FormatSplitSuggestion(areas); msg != "" {
+		prog.Info(msg)
+	}
+}
+
+func showCommitNotes(prog Progress, s *ai.CommitSuggestion) {
+	if prog == nil || s == nil || len(s.Notes) == 0 {
+		return
+	}
+	for _, note := range s.Notes {
+		note = strings.TrimSpace(note)
+		if note != "" {
+			prog.Info(note)
+		}
+	}
 }
 
 func printPRVerbose(s *ai.PRSuggestion) {

@@ -37,6 +37,8 @@ Editor AI assistants often burn expensive tokens reading diffs, writing commit m
 With gitai you get:
 
 - Messages following **Conventional Commits**
+- Commit messages that cover **all changed areas** (uses `git diff --stat` + full diff)
+- **Split suggestion** when changes span unrelated modules (e.g. leads + payments)
 - Structured PRs with **Summary**, **Changes**, **Test plan**, and **Notes**
 - **Token and cost** summary (estimate before AI + total after execution)
 - **Spending report** (`gitai report`) with CSV history
@@ -567,17 +569,28 @@ Shows token and cost summary
 **Flow:**
 
 1. `git add .` (unless `--no-add`)
-2. Get staged diff (or unstaged if nothing staged)
-3. Send diff to AI → Conventional Commit
-4. `git commit -m "..."`
-5. Show token/cost summary
+2. Read staged diff (or unstaged if nothing staged) **and** `git diff --stat`
+3. If changes span multiple unrelated areas, show a **split suggestion** (`git add -p` / `git add <paths>`)
+4. Send stat + diff to AI → Conventional Commit covering **every changed area**
+5. Show optional AI **notes** (e.g. recommend separate commits)
+6. `git commit -m "..."`
+7. Show token/cost summary
 
-**Diff used:** pending local changes (staged preferred).
+**Diff used:** pending local changes (staged preferred). The AI always receives the file list from `--stat` plus the patch content, so unrelated changes (e.g. a new Artisan command and payment controller fixes) are not silently omitted from the message.
 
 ```bash
 gitai commit
 gitai commit --no-add
-gitai commit --dry-run --verbose
+gitai commit --dry-run --verbose   # review message + notes before committing
+```
+
+**Tip:** For unrelated changes, prefer atomic commits:
+
+```bash
+git add app/Console/Commands/
+gitai commit --no-add
+git add app/Http/Controllers/PaymentController.php resources/views/customers/
+gitai commit --no-add
 ```
 
 **Common errors:**
@@ -593,7 +606,9 @@ gitai commit --dry-run --verbose
 
 **In the TUI:** preview with confirmation before execution (same as PR).
 
-**Flow:** `git add .` (unless `--no-add`) → AI commit (only if diff) → `git push -u origin HEAD`.
+**Flow:** `git add .` (unless `--no-add`) → read diff + `--stat` → split warning (if needed) → AI commit (only if diff) → `git push -u origin HEAD`.
+
+> `gitai push` **auto-commits** pending changes with AI before pushing. Use `--dry-run` to preview the message first.
 
 ```bash
 gitai push
@@ -787,13 +802,32 @@ Built-in default prices ($0.10 input / $0.40 output per 1M tokens). Update with 
 AI returns JSON and gitai formats:
 
 ```
-fix(leads): do not create clients with invalid broker
+feat: add Meta lead reprocess command and fix auto payments
 
-- avoids FK violation
-- sets broker to null when invalid
+- introduce lead:reprocess-meta command for lead reassignment
+- adjust LeadController search by ID, registration, and phone
+- fix auto-payment flow: remove orphan charges, block monthly duplicates
+- update payment views for clearer Inter API errors
 
 Co-authored-by: Name <email@example.com>
 ```
+
+**How commit analysis works:**
+
+| Input | Purpose |
+|-------|---------|
+| `git diff --stat` | File list sent first so the model knows every touched path |
+| Full diff | Patch content for accurate bullets (truncated at `max_diff_bytes`) |
+| Area grouping | Commands, Controllers, views, etc. grouped to detect unrelated work |
+| Split warning | Shown when 2+ distinct areas change — suggests `git add -p` or path-based staging |
+| AI `notes` | Optional hints in the terminal (not written into the commit body) |
+
+**Commit prompt rules (aligned with PR quality):**
+
+- Body with **2–6 bullets** covering **all** changed areas (grouped by context)
+- Broad title when changes are unrelated; avoid a narrow scope that hides other files
+- Do not invent features absent from the diff
+- Optional `notes` in JSON when separate commits would be clearer
 
 Accepted types: `fix`, `feat`, `refactor`, `docs`, `test`, `chore`, `perf`, `ci`, `build`, `style`.
 
@@ -869,6 +903,16 @@ Increase in config:
 ```yaml
 max_diff_bytes: 200000
 ```
+
+The file list from `git diff --stat` is always sent in full (small payload). Only the patch body is truncated at `max_diff_bytes`. If truncation happens, review with `--dry-run --verbose` or split into smaller commits.
+
+### Commit message missing some changes
+
+gitai sends `--stat` + diff, but a single commit mixing unrelated areas can still produce a narrow title. Prefer:
+
+1. `gitai commit --dry-run --verbose` — review before committing
+2. Atomic commits per area (`git add <paths>` + `gitai commit --no-add`)
+3. Heed the **split suggestion** when multiple modules appear in the stat
 
 ### Cost not shown
 

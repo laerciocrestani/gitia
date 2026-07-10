@@ -14,10 +14,11 @@ type CommitSuggestion struct {
 	Scope string   `json:"scope"`
 	Title string   `json:"title"`
 	Body  []string `json:"body"`
+	Notes []string `json:"notes"`
 }
 
 type Provider interface {
-	SuggestCommit(ctx context.Context, diff string, lang string) (*CommitSuggestion, error)
+	SuggestCommit(ctx context.Context, diff, diffStat, lang string) (*CommitSuggestion, error)
 	SuggestPR(ctx context.Context, diff, branch, base, lang, commitLog string) (*PRSuggestion, error)
 	UsageStats() UsageSummary
 }
@@ -35,26 +36,42 @@ func New(cfg *config.Config) (Provider, error) {
 	}
 }
 
-func buildPrompt(diff string, lang string) string {
-	return fmt.Sprintf(`Analise o git diff abaixo e gere uma mensagem de commit no formato Conventional Commits.
+func buildPrompt(diff, diffStat, lang string) string {
+	var b strings.Builder
+	b.WriteString(`Analise o git diff abaixo e gere uma mensagem de commit no formato Conventional Commits.
 
 Responda SOMENTE com JSON válido, sem markdown, sem explicações:
 {
   "type": "fix|feat|refactor|docs|test|chore|perf|ci|build|style",
   "scope": "escopo opcional do módulo",
   "title": "título curto em imperativo",
-  "body": ["bullet 1", "bullet 2"]
+  "body": ["bullet 1", "bullet 2"],
+  "notes": ["opcional — riscos ou sugestão de split"]
 }
 
 Regras:
-- Idioma: %s
+- Idioma: `)
+	b.WriteString(lang)
+	b.WriteString(`
 - type deve ser um dos valores Conventional Commits
 - title sem ponto final, máximo 72 caracteres
-- body com 1-4 bullets explicando o porquê, não o quê linha a linha
-- se scope não aplicável, use string vazia
+- body com 2-6 bullets cobrindo TODAS as áreas alteradas (agrupadas por contexto)
+- cada área/arquivo relevante do resumo deve aparecer no body; não omita mudanças
+- se houver mudanças não relacionadas entre si, use title amplo (sem scope restrito) e detalhe cada área no body
+- se o ideal for commits separados, inclua em notes uma sugestão objetiva de split
+- se scope não aplicável ou abrange múltiplas áreas, use string vazia
+- não invente funcionalidades que não aparecem no diff
+- foque no porquê e no impacto, não em linha a linha
+
+Arquivos alterados (git diff --stat):
+`)
+	b.WriteString(strings.TrimSpace(diffStat))
+	b.WriteString(`
 
 Diff:
-%s`, lang, diff)
+`)
+	b.WriteString(diff)
+	return b.String()
 }
 
 func parseSuggestion(raw string) (*CommitSuggestion, error) {

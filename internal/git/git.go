@@ -66,6 +66,26 @@ func (r *Repo) DiffForCommit() (string, error) {
 	return r.DiffUnstaged()
 }
 
+func (r *Repo) DiffStatStaged() (string, error) {
+	return r.run("diff", "--cached", "--stat")
+}
+
+func (r *Repo) DiffStatUnstaged() (string, error) {
+	return r.run("diff", "--stat")
+}
+
+// DiffStatForCommit retorna git diff --stat do que será commitado (staged ou unstaged).
+func (r *Repo) DiffStatForCommit() (string, error) {
+	stat, err := r.DiffStatStaged()
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(stat) != "" {
+		return stat, nil
+	}
+	return r.DiffStatUnstaged()
+}
+
 func (r *Repo) DiffBranch(base string) (string, error) {
 	return r.run("diff", fmt.Sprintf("%s...HEAD", base))
 }

@@ -61,9 +61,9 @@ func (c *geminiClient) UsageStats() UsageSummary {
 	return c.usage
 }
 
-func (c *geminiClient) SuggestCommit(ctx context.Context, diff string, lang string) (*CommitSuggestion, error) {
+func (c *geminiClient) SuggestCommit(ctx context.Context, diff, diffStat, lang string) (*CommitSuggestion, error) {
 	diff = truncateDiff(diff, c.cfg.MaxDiffBytes)
-	prompt := buildPrompt(diff, lang)
+	prompt := buildPrompt(diff, diffStat, lang)
 
 	var lastErr error
 	for attempt := 0; attempt < 2; attempt++ {
@@ -76,7 +76,7 @@ func (c *geminiClient) SuggestCommit(ctx context.Context, diff string, lang stri
 			return suggestion, nil
 		}
 		lastErr = err
-		prompt = buildPrompt(diff, lang) + "\n\nERRO: resposta anterior inválida. Retorne APENAS JSON válido."
+		prompt = buildPrompt(diff, diffStat, lang) + "\n\nERRO: resposta anterior inválida. Retorne APENAS JSON válido."
 	}
 	return nil, lastErr
 }

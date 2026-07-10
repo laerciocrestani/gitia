@@ -109,9 +109,9 @@ func (e CostEstimate) Format(provider config.Provider) string {
 }
 
 // DescribePreparedInput resume o que será enviado ao modelo antes da chamada.
-func DescribePreparedInput(cfg *config.Config, diff, task string) string {
+func DescribePreparedInput(cfg *config.Config, diff, diffStat, task string) string {
 	diff = truncateDiff(diff, cfg.MaxDiffBytes)
-	tokens := estimateInputTokens(diff, task)
+	tokens := estimateInputTokens(diff+diffStat, task)
 	line := fmt.Sprintf("Input: ~%d tokens · modelo %s", tokens, cfg.Model)
 	if fb := strings.TrimSpace(cfg.FallbackModel); fb != "" && fb != cfg.Model {
 		line += fmt.Sprintf(" · fallback %s", fb)
