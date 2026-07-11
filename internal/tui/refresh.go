@@ -53,7 +53,7 @@ func (m appModel) canAutoRefresh() bool {
 		return false
 	}
 	switch m.screen {
-	case ScreenDashboard, ScreenDiff:
+	case ScreenDashboard, ScreenDiff, ScreenEnvironment:
 		return true
 	default:
 		return false

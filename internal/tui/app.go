@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/laerciocrestani/openbench/internal/app"
@@ -50,6 +51,7 @@ type appModel struct {
 	report         reportModel
 	doctor         doctorModel
 	dockerLogs     dockerLogsModel
+	environment    environmentModel
 	action         *actionState
 	refresh        refreshConfig
 	refreshPending bool
@@ -67,9 +69,10 @@ func newApp(cfg refreshConfig) appModel {
 		sync:     newSyncModel(),
 		add:      newAddModel(),
 		report:     newReportModel(),
-		doctor:     newDoctorModel(),
-		dockerLogs: newDockerLogsModel(),
-		refresh:  cfg,
+		doctor:      newDoctorModel(),
+		dockerLogs:  newDockerLogsModel(),
+		environment: newEnvironmentModel(),
+		refresh:     cfg,
 	}
 }
 
@@ -144,6 +147,9 @@ func (m appModel) applySnapshot(msg snapshotMsg) (appModel, tea.Cmd) {
 	if msg.err == nil && m.screen == ScreenDiff {
 		cmds = append(cmds, loadDiffCmd(msg.snap))
 	}
+	if msg.err == nil && m.screen == ScreenEnvironment {
+		m.environment.Load(msg.snap)
+	}
 
 	cmds = append(cmds, m.reschedulePollIfNeeded())
 	return m, tea.Batch(cmds...)
@@ -185,6 +191,9 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.screen == ScreenDoctor {
 			m.doctor.SetSize(m.width, m.height)
+		}
+		if m.screen == ScreenEnvironment {
+			m.environment.SetSize(m.width, m.height)
 		}
 		if m.action != nil {
 			m.action.resizeEditors(m.width, m.height)
@@ -315,8 +324,16 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.status = "Docker " + msg.action + " complete"
 		}
+		if m.screen == ScreenEnvironment {
+			return m, loadSnapshotSilent()
+		}
 		m.loading = true
 		return m, loadSnapshotCmd(m.loadProg)
+
+	case execFallbackMsg:
+		return m, tea.ExecProcess(msg.fallback, func(err error) tea.Msg {
+			return dockerActionMsg{action: msg.action, err: err}
+		})
 
 	case actionPreviewMsg:
 		if m.action != nil {
@@ -369,6 +386,8 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateDoctor(msg)
 		case ScreenDockerLogs:
 			return m.updateDockerLogs(msg)
+		case ScreenEnvironment:
+			return m.updateEnvironment(msg)
 		case ScreenHelp:
 			return m.updateHelp(msg)
 		}
@@ -421,6 +440,12 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.screen == ScreenDockerLogs {
 		var cmd tea.Cmd
 		m.dockerLogs, cmd = m.dockerLogs.Update(msg)
+		return m, cmd
+	}
+
+	if m.screen == ScreenEnvironment && m.environment.mode == environmentModeExec {
+		var cmd tea.Cmd
+		m.environment, cmd = m.environment.Update(msg)
 		return m, cmd
 	}
 
@@ -545,6 +570,12 @@ func (m appModel) updateDashboard(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case dashKeyDockerShell:
 			m.status = "Docker shell…"
 			return m, runDockerShellCmd(m.snapshot)
+		case dashKeyEnvironment:
+			m.screen = ScreenEnvironment
+			m.status = "Environment"
+			m.environment.Load(m.snapshot)
+			m.environment.SetSize(m.width, m.height)
+			return m, nil
 		case dashKeyHelp:
 			m.screen = ScreenHelp
 			m.status = "Help"
@@ -719,6 +750,105 @@ func (m appModel) updateDockerLogs(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+func (m appModel) updateEnvironment(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if key, ok := parseGlobalKey(msg); ok {
+		switch key {
+		case keyQuit:
+			return m, tea.Quit
+		case keyRefresh:
+			return m, loadSnapshotSilent()
+		}
+	}
+
+	snap := m.snapshot
+	svc := m.environment.selectedService()
+
+	if m.environment.mode == environmentModeExec {
+		switch msg.String() {
+		case "esc":
+			m.environment.cancelExecPrompt()
+			return m, nil
+		case "enter":
+			command := app.ParseExecCommand(m.environment.execInput.Value())
+			if len(command) == 0 {
+				m.status = "Informe um comando"
+				return m, nil
+			}
+			m.environment.cancelExecPrompt()
+			m.status = "Docker exec…"
+			return m, runDockerExecProcessCmd(snap, svc, command, true)
+		}
+		var cmd tea.Cmd
+		m.environment, cmd = m.environment.Update(msg)
+		return m, cmd
+	}
+
+	switch msg.String() {
+	case "esc":
+		m.screen = ScreenDashboard
+		m.status = "Ready"
+		return m, nil
+	case "r":
+		return m, loadSnapshotSilent()
+	case "up", "k":
+		m.environment.moveCursor(-1)
+		return m, nil
+	case "down", "j":
+		m.environment.moveCursor(1)
+		return m, nil
+	case "U":
+		if app.CanDockerServiceUp(snap, svc) {
+			m.status = "Docker up " + svc + "…"
+			return m, runDockerServiceUpCmd(svc)
+		}
+		return m, nil
+	case "shift+u":
+		if app.CanDockerProjectUp(snap) {
+			m.status = "Docker up all…"
+			return m, runDockerUpCmd()
+		}
+		return m, nil
+	case "D":
+		if app.CanDockerServiceStop(snap, svc) {
+			m.status = "Docker stop " + svc + "…"
+			return m, runDockerServiceStopCmd(svc)
+		}
+		return m, nil
+	case "shift+d":
+		if app.CanDockerProjectDown(snap) {
+			m.status = "Docker down all…"
+			return m, runDockerDownCmd()
+		}
+		return m, nil
+	case "R", "shift+r":
+		if app.CanDockerServiceRecreate(snap, svc) {
+			m.status = "Docker recreate " + svc + "…"
+			return m, runDockerServiceRecreateCmd(svc)
+		}
+		return m, nil
+	case "E", "shift+e":
+		if app.CanDockerServiceShell(snap, svc) {
+			m.status = "Docker shell " + svc + "…"
+			return m, runDockerShellExecCmd(snap, svc)
+		}
+		return m, nil
+	case "x":
+		if app.CanDockerServiceExec(snap, svc) {
+			m.environment.startExecPrompt()
+			return m, textinput.Blink
+		}
+		return m, nil
+	case "L", "shift+l":
+		if svc != "" && app.CanDockerLogs(snap) {
+			m.screen = ScreenDockerLogs
+			m.status = "Docker logs · " + svc
+			return m, loadDockerLogsForServiceCmd(snap, svc)
+		}
+		return m, nil
+	}
+	return m, nil
+}
+
 func (m appModel) updateReport(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
@@ -889,6 +1019,9 @@ func (m appModel) View() string {
 	case ScreenDockerLogs:
 		b.WriteString(m.dockerLogs.View(m.loadTick))
 		help = dockerLogsHelpLine()
+	case ScreenEnvironment:
+		b.WriteString(m.environment.View(m.width, m.loadTick))
+		help = environmentHelpLine(m.snapshot, m.environment.mode, m.environment.selectedService())
 	case ScreenHelp:
 		b.WriteString("\n")
 		b.WriteString(helpContent())

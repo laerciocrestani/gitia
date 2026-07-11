@@ -9,15 +9,25 @@ import (
 
 // UpOptions configures docker compose up.
 type UpOptions struct {
-	ComposeFile string
-	Build       bool
-	Profile     string
-	DryRun      bool
+	ComposeFile   string
+	Build         bool
+	Profile       string
+	Services      []string
+	ForceRecreate bool
+	NoDeps        bool
+	DryRun        bool
 }
 
 // DownOptions configures docker compose down.
 type DownOptions struct {
 	ComposeFile string
+	DryRun      bool
+}
+
+// ServiceOptions configures docker compose service actions (stop/start).
+type ServiceOptions struct {
+	ComposeFile string
+	Services    []string
 	DryRun      bool
 }
 
@@ -37,6 +47,64 @@ type ExecOptions struct {
 	Interactive bool
 }
 
+func upArgs(opts UpOptions) []string {
+	args := []string{"up", "-d"}
+	if opts.Build {
+		args = append(args, "--build")
+	}
+	if opts.ForceRecreate {
+		args = append(args, "--force-recreate")
+	}
+	if opts.NoDeps {
+		args = append(args, "--no-deps")
+	}
+	if opts.Profile != "" {
+		args = append(args, "--profile", opts.Profile)
+	}
+	return append(args, opts.Services...)
+}
+
+func serviceArgs(subcommand string, services []string) []string {
+	args := []string{subcommand}
+	return append(args, services...)
+}
+
+func execArgs(service string, interactive bool, command []string) []string {
+	args := []string{"exec"}
+	if interactive {
+		args = append(args, "-it")
+	}
+	args = append(args, service)
+	return append(args, command...)
+}
+
+func buildDockerComposeCmd(composeFile string, args ...string) *exec.Cmd {
+	dir := composeDir(composeFile)
+	full := append([]string{"compose", "-f", filepath.Base(composeFile)}, args...)
+	cmd := exec.Command("docker", full...)
+	cmd.Dir = dir
+	return cmd
+}
+
+// BuildExecCommand builds docker compose exec for tea.ExecProcess.
+func BuildExecCommand(composeFile, service string, interactive bool, command ...string) (*exec.Cmd, error) {
+	if composeFile == "" {
+		return nil, fmt.Errorf("compose file não encontrado")
+	}
+	if service == "" {
+		return nil, fmt.Errorf("serviço não informado")
+	}
+	if len(command) == 0 {
+		return nil, fmt.Errorf("comando não informado")
+	}
+	return buildDockerComposeCmd(composeFile, execArgs(service, interactive, command)...), nil
+}
+
+// BuildShellCommand builds an interactive shell exec command (sh).
+func BuildShellCommand(composeFile, service string) (*exec.Cmd, error) {
+	return BuildExecCommand(composeFile, service, true, "sh")
+}
+
 // Up runs docker compose up -d.
 func Up(opts UpOptions) error {
 	if opts.ComposeFile == "" {
@@ -45,16 +113,7 @@ func Up(opts UpOptions) error {
 	if opts.DryRun {
 		return nil
 	}
-	dir := composeDir(opts.ComposeFile)
-	args := []string{"compose", "-f", filepath.Base(opts.ComposeFile), "up", "-d"}
-	if opts.Build {
-		args = append(args, "--build")
-	}
-	if opts.Profile != "" {
-		args = append(args, "--profile", opts.Profile)
-	}
-	cmd := exec.Command("docker", args...)
-	cmd.Dir = dir
+	cmd := buildDockerComposeCmd(opts.ComposeFile, upArgs(opts)...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
@@ -68,13 +127,55 @@ func Down(opts DownOptions) error {
 	if opts.DryRun {
 		return nil
 	}
-	dir := composeDir(opts.ComposeFile)
-	args := []string{"compose", "-f", filepath.Base(opts.ComposeFile), "down"}
-	cmd := exec.Command("docker", args...)
-	cmd.Dir = dir
+	cmd := buildDockerComposeCmd(opts.ComposeFile, "down")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
+}
+
+// Stop runs docker compose stop for one or more services.
+func Stop(opts ServiceOptions) error {
+	if opts.ComposeFile == "" {
+		return fmt.Errorf("compose file não encontrado")
+	}
+	if len(opts.Services) == 0 {
+		return fmt.Errorf("serviço não informado")
+	}
+	if opts.DryRun {
+		return nil
+	}
+	cmd := buildDockerComposeCmd(opts.ComposeFile, serviceArgs("stop", opts.Services)...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+// Start runs docker compose start for one or more services.
+func Start(opts ServiceOptions) error {
+	if opts.ComposeFile == "" {
+		return fmt.Errorf("compose file não encontrado")
+	}
+	if len(opts.Services) == 0 {
+		return fmt.Errorf("serviço não informado")
+	}
+	if opts.DryRun {
+		return nil
+	}
+	cmd := buildDockerComposeCmd(opts.ComposeFile, serviceArgs("start", opts.Services)...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+// Recreate runs docker compose up -d --force-recreate --no-deps for a service.
+func Recreate(composeFile, service string, dryRun bool) error {
+	return Up(UpOptions{
+		ComposeFile:   composeFile,
+		Services:      []string{service},
+		ForceRecreate: true,
+		NoDeps:        true,
+		DryRun:        dryRun,
+	})
 }
 
 // Logs runs docker compose logs.
@@ -129,15 +230,13 @@ func Exec(opts ExecOptions) error {
 	if opts.Service == "" {
 		return fmt.Errorf("serviço não informado")
 	}
-	dir := composeDir(opts.ComposeFile)
-	args := []string{"compose", "-f", filepath.Base(opts.ComposeFile), "exec"}
-	if opts.Interactive {
-		args = append(args, "-it")
+	if len(opts.Command) == 0 {
+		return fmt.Errorf("comando não informado")
 	}
-	args = append(args, opts.Service)
-	args = append(args, opts.Command...)
-	cmd := exec.Command("docker", args...)
-	cmd.Dir = dir
+	cmd, err := BuildExecCommand(opts.ComposeFile, opts.Service, opts.Interactive, opts.Command...)
+	if err != nil {
+		return err
+	}
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin

@@ -14,5 +14,6 @@ const (
 	ScreenReport
 	ScreenDoctor
 	ScreenDockerLogs
+	ScreenEnvironment
 	ScreenHelp
 )

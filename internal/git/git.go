@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -27,7 +28,7 @@ func (r *Repo) run(args ...string) (string, error) {
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("git %s: %s", strings.Join(args, " "), strings.TrimSpace(stderr.String()))
+		return "", wrapGitAuthError(args, stderr.String(), err)
 	}
 	return strings.TrimSpace(stdout.String()), nil
 }
@@ -149,6 +150,9 @@ func (r *Repo) Commit(message string) error {
 }
 
 func (r *Repo) Push() error {
+	if err := EnsureGitHubCredentials(); err != nil {
+		return err
+	}
 	branch, err := r.CurrentBranch()
 	if err != nil {
 		return err
@@ -163,13 +167,14 @@ func (r *Repo) IsRepo() error {
 }
 
 func (r *Repo) ProjectName() string {
+	if r.dir != "" {
+		if name := filepath.Base(filepath.Clean(r.dir)); name != "" && name != "." {
+			return name
+		}
+	}
 	url, err := r.run("remote", "get-url", "origin")
 	if err == nil && url != "" {
 		return extractRepoName(url)
-	}
-	parts := strings.Split(r.dir, string(os.PathSeparator))
-	if len(parts) > 0 {
-		return parts[len(parts)-1]
 	}
 	return "unknown"
 }

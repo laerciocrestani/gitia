@@ -10,11 +10,14 @@ import (
 
 // ContainerSummary describes one compose service container.
 type ContainerSummary struct {
-	Name    string
-	Service string
-	State   string
-	Ports   string
-	Health  string
+	Name          string
+	Service       string
+	State         string
+	Ports         string
+	Health        string
+	MemUsageBytes uint64
+	MemLimitBytes uint64
+	MemPercent    string
 }
 
 // composePSRow matches docker compose ps --format json output.
@@ -23,13 +26,15 @@ type composePSRow struct {
 	Service   string `json:"Service"`
 	State     string `json:"State"`
 	Status    string `json:"Status"`
-	Publishers []struct {
-		URL           string `json:"URL"`
-		TargetPort    int    `json:"TargetPort"`
-		PublishedPort int    `json:"PublishedPort"`
-		Protocol      string `json:"Protocol"`
-	} `json:"Publishers"`
+	Publishers []publisherRow `json:"Publishers"`
 	Health string `json:"Health"`
+}
+
+type publisherRow struct {
+	URL           string `json:"URL"`
+	TargetPort    int    `json:"TargetPort"`
+	PublishedPort int    `json:"PublishedPort"`
+	Protocol      string `json:"Protocol"`
 }
 
 // ListComposeContainers returns containers for the compose project.
@@ -91,26 +96,34 @@ func inferState(status string) string {
 	}
 }
 
-func formatPublishers(publishers []struct {
-	URL           string `json:"URL"`
-	TargetPort    int    `json:"TargetPort"`
-	PublishedPort int    `json:"PublishedPort"`
-	Protocol      string `json:"Protocol"`
-}) string {
+func formatPublishers(publishers []publisherRow) string {
 	if len(publishers) == 0 {
 		return ""
 	}
 	var parts []string
+	seen := make(map[string]struct{})
 	for _, p := range publishers {
-		if p.URL != "" {
-			parts = append(parts, p.URL)
+		part := formatPublisher(p)
+		if part == "" {
 			continue
 		}
-		if p.PublishedPort > 0 && p.TargetPort > 0 {
-			parts = append(parts, fmt.Sprintf("%d:%d", p.PublishedPort, p.TargetPort))
+		if _, ok := seen[part]; ok {
+			continue
 		}
+		seen[part] = struct{}{}
+		parts = append(parts, part)
 	}
 	return strings.Join(parts, ", ")
+}
+
+func formatPublisher(p publisherRow) string {
+	if p.PublishedPort > 0 && p.TargetPort > 0 {
+		return fmt.Sprintf("%d:%d", p.PublishedPort, p.TargetPort)
+	}
+	if p.URL != "" && strings.Contains(p.URL, ":") {
+		return p.URL
+	}
+	return ""
 }
 
 // ProjectName derives compose project name from directory basename.
@@ -139,4 +152,19 @@ func FirstRunningService(containers []ContainerSummary) string {
 		}
 	}
 	return ""
+}
+
+// ContainerByService finds a container summary by service name.
+func ContainerByService(containers []ContainerSummary, service string) (ContainerSummary, bool) {
+	for _, c := range containers {
+		if c.Service == service {
+			return c, true
+		}
+	}
+	return ContainerSummary{}, false
+}
+
+// IsRunningState reports whether a container state is running.
+func IsRunningState(state string) bool {
+	return strings.EqualFold(state, "running")
 }

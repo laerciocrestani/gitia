@@ -11,14 +11,19 @@ import (
 
 // DockerOptions holds flags for docker commands.
 type DockerOptions struct {
-	ComposeFile string
-	Service     string
-	Build       bool
-	Profile     string
-	All         bool
-	Tail        int
-	Follow      bool
-	DryRun      bool
+	ComposeFile   string
+	Service       string
+	Services      []string
+	Command       []string
+	Build         bool
+	Profile       string
+	ForceRecreate bool
+	NoDeps        bool
+	All           bool
+	Tail          int
+	Follow        bool
+	DryRun        bool
+	Interactive   bool
 }
 
 func resolveComposeFile(path string) (string, error) {
@@ -34,6 +39,16 @@ func resolveComposeFile(path string) (string, error) {
 		return "", fmt.Errorf("compose file não encontrado no diretório atual")
 	}
 	return compose, nil
+}
+
+func dockerServices(opts DockerOptions) []string {
+	if len(opts.Services) > 0 {
+		return opts.Services
+	}
+	if opts.Service != "" {
+		return []string{opts.Service}
+	}
+	return nil
 }
 
 // RunDockerStatus prints Docker environment status.
@@ -85,10 +100,13 @@ func RunDockerUp(opts DockerOptions) error {
 		return nil
 	}
 	return dockerpkg.Up(dockerpkg.UpOptions{
-		ComposeFile: compose,
-		Build:       opts.Build,
-		Profile:     opts.Profile,
-		DryRun:      opts.DryRun,
+		ComposeFile:   compose,
+		Build:         opts.Build,
+		Profile:       opts.Profile,
+		Services:      dockerServices(opts),
+		ForceRecreate: opts.ForceRecreate,
+		NoDeps:        opts.NoDeps,
+		DryRun:        opts.DryRun,
 	})
 }
 
@@ -105,6 +123,96 @@ func RunDockerDown(opts DockerOptions) error {
 	return dockerpkg.Down(dockerpkg.DownOptions{
 		ComposeFile: compose,
 		DryRun:      opts.DryRun,
+	})
+}
+
+// RunDockerStop stops one or more compose services.
+func RunDockerStop(opts DockerOptions) error {
+	compose, err := resolveComposeFile(opts.ComposeFile)
+	if err != nil {
+		return err
+	}
+	services := dockerServices(opts)
+	if len(services) == 0 {
+		return fmt.Errorf("informe o serviço: ob docker stop <service>")
+	}
+	if opts.DryRun {
+		fmt.Printf("[dry-run] docker compose stop %s (%s)\n", strings.Join(services, " "), compose)
+		return nil
+	}
+	return dockerpkg.Stop(dockerpkg.ServiceOptions{
+		ComposeFile: compose,
+		Services:    services,
+		DryRun:      opts.DryRun,
+	})
+}
+
+// RunDockerStart starts one or more compose services.
+func RunDockerStart(opts DockerOptions) error {
+	compose, err := resolveComposeFile(opts.ComposeFile)
+	if err != nil {
+		return err
+	}
+	services := dockerServices(opts)
+	if len(services) == 0 {
+		return fmt.Errorf("informe o serviço: ob docker start <service>")
+	}
+	if opts.DryRun {
+		fmt.Printf("[dry-run] docker compose start %s (%s)\n", strings.Join(services, " "), compose)
+		return nil
+	}
+	return dockerpkg.Start(dockerpkg.ServiceOptions{
+		ComposeFile: compose,
+		Services:    services,
+		DryRun:      opts.DryRun,
+	})
+}
+
+// RunDockerRecreate force-recreates a compose service.
+func RunDockerRecreate(opts DockerOptions) error {
+	compose, err := resolveComposeFile(opts.ComposeFile)
+	if err != nil {
+		return err
+	}
+	service := opts.Service
+	if service == "" && len(opts.Services) > 0 {
+		service = opts.Services[0]
+	}
+	if service == "" {
+		return fmt.Errorf("informe o serviço")
+	}
+	if opts.DryRun {
+		fmt.Printf("[dry-run] docker compose up -d --force-recreate --no-deps %s (%s)\n", service, compose)
+		return nil
+	}
+	return dockerpkg.Recreate(compose, service, opts.DryRun)
+}
+
+// RunDockerExec runs a command in a service container.
+func RunDockerExec(opts DockerOptions) error {
+	compose, err := resolveComposeFile(opts.ComposeFile)
+	if err != nil {
+		return err
+	}
+	service := opts.Service
+	if service == "" && len(opts.Services) > 0 {
+		service = opts.Services[0]
+	}
+	if service == "" {
+		return fmt.Errorf("informe o serviço: ob docker exec <service> -- <command>")
+	}
+	if len(opts.Command) == 0 {
+		return fmt.Errorf("informe o comando: ob docker exec <service> -- <command>")
+	}
+	if opts.DryRun {
+		fmt.Printf("[dry-run] docker compose exec %s %s (%s)\n", service, strings.Join(opts.Command, " "), compose)
+		return nil
+	}
+	return dockerpkg.Exec(dockerpkg.ExecOptions{
+		ComposeFile: compose,
+		Service:     service,
+		Command:     opts.Command,
+		Interactive: opts.Interactive,
 	})
 }
 
@@ -142,6 +250,9 @@ func RunDockerShell(opts DockerOptions) error {
 		return err
 	}
 	service := opts.Service
+	if service == "" && len(opts.Services) > 0 {
+		service = opts.Services[0]
+	}
 	if service == "" {
 		ov := dockerpkg.LoadOverview("")
 		service = ov.DefaultService()
@@ -150,6 +261,18 @@ func RunDockerShell(opts DockerOptions) error {
 		return fmt.Errorf("nenhum serviço em execução — informe o serviço: ob docker sh <service>")
 	}
 	return dockerpkg.Shell(compose, service)
+}
+
+// DockerComposeFile returns the resolved compose file path from snapshot or cwd.
+func DockerComposeFile(snap *WorkspaceSnapshot) string {
+	if snap != nil && snap.Docker != nil && snap.Docker.ComposeFile != "" {
+		return snap.Docker.ComposeFile
+	}
+	compose, err := resolveComposeFile("")
+	if err != nil {
+		return ""
+	}
+	return compose
 }
 
 func printDockerOverview(sess *ui.Session, ov *dockerpkg.Overview) {
@@ -215,6 +338,64 @@ func CanDockerShell(snap *WorkspaceSnapshot) bool {
 	return snap != nil && snap.Docker != nil && snap.Docker.CanShell()
 }
 
+// CanDockerEnvironment reports whether the environment detail screen is available.
+func CanDockerEnvironment(snap *WorkspaceSnapshot) bool {
+	return snap != nil && snap.Docker != nil && snap.Docker.CanUp()
+}
+
+// CanDockerServiceUp reports whether a service can be started.
+func CanDockerServiceUp(snap *WorkspaceSnapshot, service string) bool {
+	if snap == nil || snap.Docker == nil || !snap.Docker.CanUp() || service == "" {
+		return false
+	}
+	if c, ok := dockerpkg.ContainerByService(snap.Docker.Containers, service); ok {
+		return !dockerpkg.IsRunningState(c.State)
+	}
+	return true
+}
+
+// CanDockerServiceStop reports whether a service can be stopped.
+func CanDockerServiceStop(snap *WorkspaceSnapshot, service string) bool {
+	if snap == nil || snap.Docker == nil || !snap.Docker.CanUp() || service == "" {
+		return false
+	}
+	if c, ok := dockerpkg.ContainerByService(snap.Docker.Containers, service); ok {
+		return dockerpkg.IsRunningState(c.State)
+	}
+	return false
+}
+
+// CanDockerServiceRecreate reports whether a service can be recreated.
+func CanDockerServiceRecreate(snap *WorkspaceSnapshot, service string) bool {
+	return snap != nil && snap.Docker != nil && snap.Docker.CanUp() && service != ""
+}
+
+// CanDockerServiceShell reports whether shell is available for a service.
+func CanDockerServiceShell(snap *WorkspaceSnapshot, service string) bool {
+	if snap == nil || snap.Docker == nil || !snap.Docker.CanUp() || service == "" {
+		return false
+	}
+	if c, ok := dockerpkg.ContainerByService(snap.Docker.Containers, service); ok {
+		return dockerpkg.IsRunningState(c.State)
+	}
+	return false
+}
+
+// CanDockerServiceExec reports whether exec is available for a service.
+func CanDockerServiceExec(snap *WorkspaceSnapshot, service string) bool {
+	return CanDockerServiceShell(snap, service)
+}
+
+// CanDockerProjectUp reports whether the full stack can be started.
+func CanDockerProjectUp(snap *WorkspaceSnapshot) bool {
+	return snap != nil && snap.Docker != nil && snap.Docker.CanUp()
+}
+
+// CanDockerProjectDown reports whether the full stack can be stopped.
+func CanDockerProjectDown(snap *WorkspaceSnapshot) bool {
+	return CanDockerDown(snap)
+}
+
 // DockerDefaultService returns the default service for logs/shell.
 func DockerDefaultService(snap *WorkspaceSnapshot) string {
 	if snap == nil || snap.Docker == nil {
@@ -255,4 +436,9 @@ func DockerContainersRunning(ov *dockerpkg.Overview) int {
 		}
 	}
 	return n
+}
+
+// ParseExecCommand splits a user command string into argv for docker exec.
+func ParseExecCommand(input string) []string {
+	return strings.Fields(strings.TrimSpace(input))
 }

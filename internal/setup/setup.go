@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/laerciocrestani/openbench/internal/git"
 	"github.com/laerciocrestani/openbench/internal/ui"
 	"github.com/laerciocrestani/openbench/internal/version"
 )
@@ -471,7 +472,13 @@ func checkOptionalTools(sess *ui.Session) {
 	cmd.Stderr = nil
 	if err := cmd.Run(); err != nil {
 		sess.Warn("gh not authenticated — run: gh auth login")
+		return
 	}
+	if err := git.EnsureGitHubCredentials(); err != nil {
+		sess.Warn(err.Error())
+		return
+	}
+	sess.Detail("git configured for GitHub HTTPS (gh auth setup-git)")
 }
 
 func gitShortHash(root string) (string, error) {

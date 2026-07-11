@@ -62,6 +62,7 @@ func DefaultFooterItems(snap *app.WorkspaceSnapshot) []FooterItem {
 		{Key: "b", Label: "Branches", Enabled: snap != nil && snap.Overview != nil && len(snap.Overview.Branches) > 0},
 		{Key: "U", Label: "Up", Enabled: app.CanDockerUp(snap)},
 		{Key: "D", Label: "Down", Enabled: app.CanDockerDown(snap)},
+		{Key: "i", Label: "Env", Enabled: app.CanDockerEnvironment(snap)},
 		{Key: "L", Label: "DLogs", Enabled: app.CanDockerLogs(snap)},
 		{Key: "E", Label: "Shell", Enabled: app.CanDockerShell(snap)},
 		{Key: "y", Label: "Copy hash", Enabled: snap != nil && snap.Overview != nil && snap.Overview.HeadHash != ""},

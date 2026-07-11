@@ -22,8 +22,11 @@ func newDockerLogsModel() dockerLogsModel {
 }
 
 func loadDockerLogsCmd(snap *app.WorkspaceSnapshot) tea.Cmd {
+	return loadDockerLogsForServiceCmd(snap, app.DockerDefaultService(snap))
+}
+
+func loadDockerLogsForServiceCmd(snap *app.WorkspaceSnapshot, service string) tea.Cmd {
 	return func() tea.Msg {
-		service := app.DockerDefaultService(snap)
 		content, err := app.RunDockerLogsOutput(app.DockerOptions{
 			Service: service,
 			Tail:    200,
@@ -45,27 +48,6 @@ type dockerLogsLoadedMsg struct {
 type dockerActionMsg struct {
 	action string
 	err    error
-}
-
-func runDockerUpCmd() tea.Cmd {
-	return func() tea.Msg {
-		return dockerActionMsg{action: "up", err: app.RunDockerUp(app.DockerOptions{})}
-	}
-}
-
-func runDockerDownCmd() tea.Cmd {
-	return func() tea.Msg {
-		return dockerActionMsg{action: "down", err: app.RunDockerDown(app.DockerOptions{})}
-	}
-}
-
-func runDockerShellCmd(snap *app.WorkspaceSnapshot) tea.Cmd {
-	return func() tea.Msg {
-		return dockerActionMsg{
-			action: "shell",
-			err:    app.RunDockerShell(app.DockerOptions{Service: app.DockerDefaultService(snap)}),
-		}
-	}
 }
 
 func (m *dockerLogsModel) SetSize(width, height int) {

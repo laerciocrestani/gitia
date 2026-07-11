@@ -27,9 +27,11 @@ var (
 	reportMonth         bool
 	reportAll           bool
 	doctorExplain       bool
-	dockerBuild         bool
-	dockerProfile       string
-	dockerAll           bool
+	dockerBuild           bool
+	dockerProfile         string
+	dockerForceRecreate   bool
+	dockerNoDeps          bool
+	dockerAll             bool
 	dockerTail          int
 	dockerFollow        bool
 	dockerComposeFile   string
@@ -279,20 +281,72 @@ func main() {
 	dockerPSCmd.Flags().BoolVar(&dockerAll, "all", false, "inclui containers parados")
 
 	dockerUpCmd := &cobra.Command{
-		Use:   "up",
+		Use:   "up [service...]",
 		Short: "Sobe serviços com docker compose up -d",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return app.RunDockerUp(dockerOpts())
+			opts := dockerOpts()
+			opts.Services = args
+			return app.RunDockerUp(opts)
 		},
 	}
 	dockerUpCmd.Flags().BoolVar(&dockerBuild, "build", false, "reconstrói imagens antes de subir")
 	dockerUpCmd.Flags().StringVar(&dockerProfile, "profile", "", "profile do compose")
+	dockerUpCmd.Flags().BoolVar(&dockerForceRecreate, "force-recreate", false, "recria containers antes de subir")
+	dockerUpCmd.Flags().BoolVar(&dockerNoDeps, "no-deps", false, "não inicia serviços dependentes")
 
 	dockerDownCmd := &cobra.Command{
 		Use:   "down",
 		Short: "Para serviços com docker compose down",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return app.RunDockerDown(dockerOpts())
+		},
+	}
+
+	dockerStopCmd := &cobra.Command{
+		Use:   "stop [service...]",
+		Short: "Para serviços específicos com docker compose stop",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			opts := dockerOpts()
+			opts.Services = args
+			return app.RunDockerStop(opts)
+		},
+	}
+
+	dockerStartCmd := &cobra.Command{
+		Use:   "start [service...]",
+		Short: "Inicia serviços parados com docker compose start",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			opts := dockerOpts()
+			opts.Services = args
+			return app.RunDockerStart(opts)
+		},
+	}
+
+	dockerRecreateCmd := &cobra.Command{
+		Use:   "recreate [service]",
+		Short: "Recria um serviço com docker compose up -d --force-recreate --no-deps",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			opts := dockerOpts()
+			opts.Service = args[0]
+			return app.RunDockerRecreate(opts)
+		},
+	}
+
+	dockerExecCmd := &cobra.Command{
+		Use:   "exec [service] -- [command...]",
+		Short: "Executa comando em um serviço (docker compose exec)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			opts := dockerOpts()
+			if len(args) == 0 {
+				return fmt.Errorf("informe o serviço: ob docker exec <service> -- <command>")
+			}
+			opts.Service = args[0]
+			if len(args) > 1 {
+				opts.Command = args[1:]
+			}
+			opts.Interactive = false
+			return app.RunDockerExec(opts)
 		},
 	}
 
@@ -323,7 +377,7 @@ func main() {
 	}
 
 	dockerCmd.PersistentFlags().StringVarP(&dockerComposeFile, "file", "f", "", "caminho do compose file")
-	dockerCmd.AddCommand(dockerStatusCmd, dockerPSCmd, dockerUpCmd, dockerDownCmd, dockerLogsCmd, dockerShCmd)
+	dockerCmd.AddCommand(dockerStatusCmd, dockerPSCmd, dockerUpCmd, dockerDownCmd, dockerStopCmd, dockerStartCmd, dockerRecreateCmd, dockerExecCmd, dockerLogsCmd, dockerShCmd)
 
 	root.AddCommand(installCmd, updateCmd, syncCmd, versionCmd, statusCmd, commitCmd, pushCmd, prCmd, configCmd, pricingCmd, reportCmd, uiCmd, doctorCmd, dockerCmd)
 
@@ -334,13 +388,15 @@ func main() {
 
 func dockerOpts() app.DockerOptions {
 	return app.DockerOptions{
-		ComposeFile: dockerComposeFile,
-		Build:       dockerBuild,
-		Profile:     dockerProfile,
-		All:         dockerAll,
-		Tail:        dockerTail,
-		Follow:      dockerFollow,
-		DryRun:      dryRun,
+		ComposeFile:   dockerComposeFile,
+		Build:         dockerBuild,
+		Profile:       dockerProfile,
+		ForceRecreate: dockerForceRecreate,
+		NoDeps:        dockerNoDeps,
+		All:           dockerAll,
+		Tail:          dockerTail,
+		Follow:        dockerFollow,
+		DryRun:        dryRun,
 	}
 }
 

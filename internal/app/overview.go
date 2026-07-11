@@ -152,6 +152,11 @@ func printSuggestions(sess *ui.Session, snap *WorkspaceSnapshot) {
 }
 
 func repoDisplayName(o *gitpkg.Overview) string {
+	if o.Root != "" {
+		if name := filepath.Base(filepath.Clean(o.Root)); name != "" && name != "." {
+			return name
+		}
+	}
 	if o.RemoteURL != "" {
 		name := o.RemoteURL
 		name = strings.TrimSuffix(name, ".git")
@@ -165,7 +170,7 @@ func repoDisplayName(o *gitpkg.Overview) string {
 			return name
 		}
 	}
-	return filepath.Base(o.Root)
+	return "unknown"
 }
 
 func truncate(s string, max int) string {

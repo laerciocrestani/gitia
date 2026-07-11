@@ -26,6 +26,7 @@ const (
 	dashKeyDockerDown
 	dashKeyDockerLogs
 	dashKeyDockerShell
+	dashKeyEnvironment
 	dashKeyHelp
 )
 
@@ -104,6 +105,10 @@ func parseDashboardKey(msg tea.KeyMsg, snap *app.WorkspaceSnapshot) (dashKey, bo
 	case "E", "shift+e":
 		if app.CanDockerShell(snap) {
 			return dashKeyDockerShell, true
+		}
+	case "i":
+		if app.CanDockerEnvironment(snap) {
+			return dashKeyEnvironment, true
 		}
 	}
 	return dashKeyNone, false

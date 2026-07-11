@@ -53,6 +53,16 @@ func TestBuildTUINextAction_commit(t *testing.T) {
 	}
 }
 
+func TestRepoDisplayName_prefersRootOverRemote(t *testing.T) {
+	o := &gitpkg.Overview{
+		Root:      "/Users/dev/openbench",
+		RemoteURL: "https://github.com/user/gitai.git",
+	}
+	if got := repoDisplayName(o); got != "openbench" {
+		t.Fatalf("repoDisplayName = %q want openbench", got)
+	}
+}
+
 func TestBuildHeaderContext(t *testing.T) {
 	snap := &WorkspaceSnapshot{
 		Overview: &gitpkg.Overview{

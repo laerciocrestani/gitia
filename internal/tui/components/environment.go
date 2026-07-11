@@ -33,6 +33,13 @@ func RenderEnvironmentPanel(snap *app.WorkspaceSnapshot, width int) string {
 	if ov.ComposeFile != "" {
 		composeName := filepath.Base(ov.ComposeFile)
 		lines = append(lines, fmt.Sprintf("Compose  %s  (%s)", composeName, ov.ProjectName))
+		if ov.Memory.LimitBytes > 0 {
+			memLine := fmt.Sprintf("Memory   %s / %s", dockerpkg.FormatBytes(ov.Memory.UsedBytes), dockerpkg.FormatBytes(ov.Memory.LimitBytes))
+			if pct := ov.Memory.Percent(); pct > 0 {
+				memLine += fmt.Sprintf("  (%.0f%%)", pct)
+			}
+			lines = append(lines, memLine)
+		}
 	} else if ov.Available && ov.DaemonRunning {
 		lines = append(lines, theme.S.Hint.Render("Compose  not found"))
 	}
@@ -58,6 +65,9 @@ func RenderEnvironmentPanel(snap *app.WorkspaceSnapshot, width int) string {
 	}
 
 	body := strings.Join(lines, "\n")
+	if len(ov.Containers) > 0 && ov.ComposeFile != "" {
+		body += "\n" + theme.S.Hint.Render("  i — service details")
+	}
 	return RenderPanel("Environment", body, width)
 }
 
@@ -76,5 +86,53 @@ func formatContainerLine(c dockerpkg.ContainerSummary) string {
 	if c.Health != "" {
 		line += "  " + theme.S.Hint.Render("("+c.Health+")")
 	}
+	if c.MemUsageBytes > 0 {
+		mem := dockerpkg.FormatBytes(c.MemUsageBytes)
+		if c.MemPercent != "" {
+			mem += " (" + c.MemPercent + ")"
+		}
+		line += "  " + theme.S.Info.Render(mem)
+	}
 	return line
+}
+
+// RenderServiceListLine renders one selectable service row for the environment screen.
+func RenderServiceListLine(c dockerpkg.ContainerSummary, selected bool) string {
+	line := formatContainerLine(c)
+	if selected {
+		return theme.S.Current.Render("▸ " + line)
+	}
+	return "  " + line
+}
+
+// RenderServiceDetail renders detail text for the selected service.
+func RenderServiceDetail(c dockerpkg.ContainerSummary, width int) string {
+	var lines []string
+	lines = append(lines, theme.S.Title.Render("Service detail"))
+	lines = append(lines, fmt.Sprintf("  name    %s", c.Service))
+	if c.Name != "" {
+		lines = append(lines, fmt.Sprintf("  container %s", c.Name))
+	}
+	lines = append(lines, fmt.Sprintf("  state   %s", c.State))
+	if c.Ports != "" {
+		lines = append(lines, fmt.Sprintf("  ports   %s", c.Ports))
+	}
+	if c.Health != "" {
+		lines = append(lines, fmt.Sprintf("  health  %s", c.Health))
+	}
+	if c.MemUsageBytes > 0 {
+		mem := dockerpkg.FormatBytes(c.MemUsageBytes)
+		if c.MemLimitBytes > 0 {
+			mem += " / " + dockerpkg.FormatBytes(c.MemLimitBytes)
+		}
+		if c.MemPercent != "" {
+			mem += " (" + c.MemPercent + ")"
+		}
+		lines = append(lines, fmt.Sprintf("  memory  %s", mem))
+	}
+	body := strings.Join(lines, "\n")
+	if width > 0 {
+		return RenderPanel("", body, width)
+	}
+	return body
 }

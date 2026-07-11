@@ -6,6 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/laerciocrestani/openbench/internal/app"
+	dockerpkg "github.com/laerciocrestani/openbench/internal/docker"
 	gitpkg "github.com/laerciocrestani/openbench/internal/git"
 )
 
@@ -114,6 +115,21 @@ func TestParseDashboardKey_lowercaseActions(t *testing.T) {
 		if !ok || k != tc.want {
 			t.Fatalf("key %q: got %v ok=%v want %v", tc.key, k, ok, tc.want)
 		}
+	}
+}
+
+func TestParseDashboardKey_environment(t *testing.T) {
+	snap := &app.WorkspaceSnapshot{
+		Docker: &dockerpkg.Overview{
+			Available:     true,
+			DaemonRunning: true,
+			ComposeFile:   "/proj/docker-compose.yml",
+			Containers:    []dockerpkg.ContainerSummary{{Service: "app", State: "running"}},
+		},
+	}
+	k, ok := parseDashboardKey(keyRunes("i"), snap)
+	if !ok || k != dashKeyEnvironment {
+		t.Fatalf("key=%v ok=%v want dashKeyEnvironment", k, ok)
 	}
 }
 

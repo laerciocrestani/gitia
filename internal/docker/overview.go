@@ -12,6 +12,7 @@ type Overview struct {
 	ComposeFile   string
 	ProjectName   string
 	Containers    []ContainerSummary
+	Memory        MemorySummary
 	Error         string
 }
 
@@ -46,6 +47,7 @@ func LoadOverview(workDir string) *Overview {
 		return ov
 	}
 	ov.Containers = containers
+	ov.Memory = AttachContainerStats(ov.ComposeFile, ov.Containers)
 	return ov
 }
 
