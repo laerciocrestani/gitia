@@ -11,6 +11,7 @@ import (
 
 // DockerOptions holds flags for docker commands.
 type DockerOptions struct {
+	WorkDir       string // optional project directory for compose discovery
 	ComposeFile   string
 	Service       string
 	Services      []string
@@ -26,15 +27,19 @@ type DockerOptions struct {
 	Interactive   bool
 }
 
-func resolveComposeFile(path string) (string, error) {
-	if path != "" {
-		return path, nil
+func resolveComposeFile(opts DockerOptions) (string, error) {
+	if opts.ComposeFile != "" {
+		return opts.ComposeFile, nil
 	}
-	cwd, err := os.Getwd()
-	if err != nil {
-		return "", err
+	start := opts.WorkDir
+	if start == "" {
+		cwd, err := os.Getwd()
+		if err != nil {
+			return "", err
+		}
+		start = cwd
 	}
-	compose := dockerpkg.FindComposeFile(cwd)
+	compose := dockerpkg.FindComposeFile(start)
 	if compose == "" {
 		return "", fmt.Errorf("compose file não encontrado no diretório atual")
 	}
@@ -66,7 +71,7 @@ func RunDockerPS(opts DockerOptions) error {
 	sess := ui.New("docker ps", false)
 	sess.Header()
 
-	compose, err := resolveComposeFile(opts.ComposeFile)
+	compose, err := resolveComposeFile(opts)
 	if err != nil {
 		return err
 	}
@@ -91,7 +96,7 @@ func RunDockerPS(opts DockerOptions) error {
 
 // RunDockerUp starts compose services.
 func RunDockerUp(opts DockerOptions) error {
-	compose, err := resolveComposeFile(opts.ComposeFile)
+	compose, err := resolveComposeFile(opts)
 	if err != nil {
 		return err
 	}
@@ -112,7 +117,7 @@ func RunDockerUp(opts DockerOptions) error {
 
 // RunDockerDown stops compose services.
 func RunDockerDown(opts DockerOptions) error {
-	compose, err := resolveComposeFile(opts.ComposeFile)
+	compose, err := resolveComposeFile(opts)
 	if err != nil {
 		return err
 	}
@@ -128,7 +133,7 @@ func RunDockerDown(opts DockerOptions) error {
 
 // RunDockerStop stops one or more compose services.
 func RunDockerStop(opts DockerOptions) error {
-	compose, err := resolveComposeFile(opts.ComposeFile)
+	compose, err := resolveComposeFile(opts)
 	if err != nil {
 		return err
 	}
@@ -149,7 +154,7 @@ func RunDockerStop(opts DockerOptions) error {
 
 // RunDockerStart starts one or more compose services.
 func RunDockerStart(opts DockerOptions) error {
-	compose, err := resolveComposeFile(opts.ComposeFile)
+	compose, err := resolveComposeFile(opts)
 	if err != nil {
 		return err
 	}
@@ -170,7 +175,7 @@ func RunDockerStart(opts DockerOptions) error {
 
 // RunDockerRecreate force-recreates a compose service.
 func RunDockerRecreate(opts DockerOptions) error {
-	compose, err := resolveComposeFile(opts.ComposeFile)
+	compose, err := resolveComposeFile(opts)
 	if err != nil {
 		return err
 	}
@@ -190,7 +195,7 @@ func RunDockerRecreate(opts DockerOptions) error {
 
 // RunDockerExec runs a command in a service container.
 func RunDockerExec(opts DockerOptions) error {
-	compose, err := resolveComposeFile(opts.ComposeFile)
+	compose, err := resolveComposeFile(opts)
 	if err != nil {
 		return err
 	}
@@ -218,7 +223,7 @@ func RunDockerExec(opts DockerOptions) error {
 
 // RunDockerLogs streams or prints service logs.
 func RunDockerLogs(opts DockerOptions) error {
-	compose, err := resolveComposeFile(opts.ComposeFile)
+	compose, err := resolveComposeFile(opts)
 	if err != nil {
 		return err
 	}
@@ -232,7 +237,7 @@ func RunDockerLogs(opts DockerOptions) error {
 
 // RunDockerLogsOutput captures logs for the TUI.
 func RunDockerLogsOutput(opts DockerOptions) (string, error) {
-	compose, err := resolveComposeFile(opts.ComposeFile)
+	compose, err := resolveComposeFile(opts)
 	if err != nil {
 		return "", err
 	}
@@ -245,7 +250,7 @@ func RunDockerLogsOutput(opts DockerOptions) (string, error) {
 
 // RunDockerShell opens an interactive shell in a service.
 func RunDockerShell(opts DockerOptions) error {
-	compose, err := resolveComposeFile(opts.ComposeFile)
+	compose, err := resolveComposeFile(opts)
 	if err != nil {
 		return err
 	}
@@ -268,7 +273,7 @@ func DockerComposeFile(snap *WorkspaceSnapshot) string {
 	if snap != nil && snap.Docker != nil && snap.Docker.ComposeFile != "" {
 		return snap.Docker.ComposeFile
 	}
-	compose, err := resolveComposeFile("")
+	compose, err := resolveComposeFile(DockerOptions{})
 	if err != nil {
 		return ""
 	}

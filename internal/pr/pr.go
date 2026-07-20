@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/laerciocrestani/openbench/internal/ai"
@@ -28,7 +29,16 @@ func New() (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Client{dir: dir}, nil
+	return Open(dir)
+}
+
+// Open returns a gh client bound to dir.
+func Open(dir string) (*Client, error) {
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return nil, err
+	}
+	return &Client{dir: abs}, nil
 }
 
 func (c *Client) run(args ...string) (string, error) {

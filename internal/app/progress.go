@@ -10,3 +10,17 @@ type Progress interface {
 	Warn(msg string)
 	Success(msg string)
 }
+
+// NopProgress discards presentation output (desktop bindings, tests).
+func NopProgress() Progress {
+	return nopProgress{}
+}
+
+type nopProgress struct{}
+
+func (nopProgress) Step(_ string, fn func() error) error { return fn() }
+func (nopProgress) StepQuiet(fn func() error) error     { return fn() }
+func (nopProgress) Detail(string)                       {}
+func (nopProgress) Info(string)                         {}
+func (nopProgress) Warn(string)                         {}
+func (nopProgress) Success(string)                      {}

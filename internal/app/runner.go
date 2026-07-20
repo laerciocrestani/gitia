@@ -20,6 +20,7 @@ type Options struct {
 	Draft               bool
 	Base                string
 	Verbose             bool
+	WorkDir             string // optional; when set, git/gh run in this directory
 	UI                  *ui.Session
 	Progress            Progress
 	CachedCommitMessage string
@@ -165,7 +166,7 @@ func RunPush(ctx context.Context, opts Options) (*Result, error) {
 		opts.session("push").Header()
 	}
 
-	repo, err := gitpkg.New()
+	repo, err := openRepo(opts.WorkDir)
 	if err != nil {
 		return nil, err
 	}
@@ -244,7 +245,7 @@ func RunPR(ctx context.Context, opts Options) (*Result, error) {
 		base = cfg.BaseBranch
 	}
 
-	repo, err := gitpkg.New()
+	repo, err := openRepo(opts.WorkDir)
 	if err != nil {
 		return nil, err
 	}
@@ -361,7 +362,7 @@ func RunPR(ctx context.Context, opts Options) (*Result, error) {
 		printPRVerbose(prSuggestion)
 	}
 
-	prClient, err := prpkg.New()
+	prClient, err := openPRClient(opts.WorkDir)
 	if err != nil {
 		return nil, err
 	}
@@ -403,7 +404,7 @@ func commitFlow(ctx context.Context, opts Options, prog Progress) (*Result, ai.P
 		return nil, nil, err
 	}
 
-	repo, err := gitpkg.New()
+	repo, err := openRepo(opts.WorkDir)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -442,17 +443,18 @@ func commitFlow(ctx context.Context, opts Options, prog Progress) (*Result, ai.P
 		}
 	}
 
-	provider, err := ai.New(cfg)
-	if err != nil {
-		return nil, nil, err
-	}
-
+	var provider ai.Provider
 	var suggestion *ai.CommitSuggestion
 	var message string
 
 	if opts.CachedCommitMessage != "" {
 		message = opts.CachedCommitMessage
 	} else {
+		var err error
+		provider, err = ai.New(cfg)
+		if err != nil {
+			return nil, nil, err
+		}
 		warnSplitCommit(prog, diffStat)
 		prog.Detail(ai.DescribePreparedInput(cfg, diff, diffStat, "commit"))
 		if err := prog.Step("Thinking", func() error {
@@ -628,6 +630,20 @@ func quoteMessage(msg string) string {
 		return fmt.Sprintf("%q...", msg[:80])
 	}
 	return fmt.Sprintf("%q", msg)
+}
+
+func openRepo(workDir string) (*gitpkg.Repo, error) {
+	if strings.TrimSpace(workDir) == "" {
+		return gitpkg.New()
+	}
+	return gitpkg.Open(workDir)
+}
+
+func openPRClient(workDir string) (*prpkg.Client, error) {
+	if strings.TrimSpace(workDir) == "" {
+		return prpkg.New()
+	}
+	return prpkg.Open(workDir)
 }
 
 func PrintDryRunHint() {

@@ -13,9 +13,7 @@ type ChangeArea struct {
 
 // ChangeAreasFromStat agrupa arquivos do git diff --stat por área de mudança.
 func ChangeAreasFromStat(stat string) []ChangeArea {
-	seen := make(map[string]bool)
-	var areas []ChangeArea
-
+	var paths []string
 	for _, line := range strings.Split(stat, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, " ") {
@@ -29,7 +27,20 @@ func ChangeAreasFromStat(stat string) []ChangeArea {
 		if path == "" {
 			continue
 		}
+		paths = append(paths, path)
+	}
+	return ChangeAreasFromPaths(paths)
+}
 
+// ChangeAreasFromPaths agrupa paths por área semântica (mesma heurística do --stat).
+func ChangeAreasFromPaths(paths []string) []ChangeArea {
+	seen := make(map[string]bool)
+	var areas []ChangeArea
+	for _, path := range paths {
+		path = strings.TrimSpace(path)
+		if path == "" {
+			continue
+		}
 		key := changeAreaKey(path)
 		if seen[key] {
 			continue
@@ -37,7 +48,6 @@ func ChangeAreasFromStat(stat string) []ChangeArea {
 		seen[key] = true
 		areas = append(areas, ChangeArea{Key: key, Path: path})
 	}
-
 	return areas
 }
 

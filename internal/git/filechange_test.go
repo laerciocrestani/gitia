@@ -34,3 +34,15 @@ func TestFilterAddable(t *testing.T) {
 		t.Fatalf("FilterAddable len = %d, want 2", len(got))
 	}
 }
+
+func TestSortByChurn(t *testing.T) {
+	changes := []FileChange{
+		{Path: "small.go", Insertions: 1, Deletions: 0},
+		{Path: "big.go", Insertions: 10, Deletions: 5},
+		{Path: "mid.go", Insertions: 3, Deletions: 3},
+	}
+	got := SortByChurn(changes)
+	if got[0].Path != "big.go" || got[1].Path != "mid.go" || got[2].Path != "small.go" {
+		t.Fatalf("order = %v, %v, %v", got[0].Path, got[1].Path, got[2].Path)
+	}
+}
