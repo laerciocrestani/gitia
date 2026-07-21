@@ -27,14 +27,15 @@ var (
 	reportMonth         bool
 	reportAll           bool
 	doctorExplain       bool
-	dockerBuild           bool
-	dockerProfile         string
-	dockerForceRecreate   bool
-	dockerNoDeps          bool
-	dockerAll             bool
+	dockerBuild         bool
+	dockerProfile       string
+	dockerForceRecreate bool
+	dockerNoDeps        bool
+	dockerAll           bool
 	dockerTail          int
 	dockerFollow        bool
 	dockerComposeFile   string
+	dockerPresetService string
 )
 
 func main() {
@@ -376,8 +377,51 @@ func main() {
 		},
 	}
 
+	dockerPresetCmd := &cobra.Command{
+		Use:   "preset",
+		Short: "Presets de comandos docker exec do projeto",
+	}
+	dockerPresetListCmd := &cobra.Command{
+		Use:   "list",
+		Short: "Lista presets em .openbench/docker-presets.yaml",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return app.RunDockerPresetList("")
+		},
+	}
+	dockerPresetRunCmd := &cobra.Command{
+		Use:   "run <preset-id>",
+		Short: "Executa um preset no serviço (one-shot)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return app.RunDockerPresetRun("", dockerPresetService, args[0], dryRun)
+		},
+	}
+	dockerPresetRunCmd.Flags().StringVar(&dockerPresetService, "service", "", "serviço compose (default: primeiro running)")
+	dockerPresetCmd.AddCommand(dockerPresetListCmd, dockerPresetRunCmd)
+
+	dockerKitCmd := &cobra.Command{
+		Use:   "kit",
+		Short: "Kits de presets empacotados (ex: laravel)",
+	}
+	dockerKitListCmd := &cobra.Command{
+		Use:   "list",
+		Short: "Lista kits disponíveis para importar",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return app.RunDockerKitList()
+		},
+	}
+	dockerKitImportCmd := &cobra.Command{
+		Use:   "import <kit-id>",
+		Short: "Importa um kit para .openbench/docker-presets.yaml",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return app.RunDockerKitImport("", args[0])
+		},
+	}
+	dockerKitCmd.AddCommand(dockerKitListCmd, dockerKitImportCmd)
+
 	dockerCmd.PersistentFlags().StringVarP(&dockerComposeFile, "file", "f", "", "caminho do compose file")
-	dockerCmd.AddCommand(dockerStatusCmd, dockerPSCmd, dockerUpCmd, dockerDownCmd, dockerStopCmd, dockerStartCmd, dockerRecreateCmd, dockerExecCmd, dockerLogsCmd, dockerShCmd)
+	dockerCmd.AddCommand(dockerStatusCmd, dockerPSCmd, dockerUpCmd, dockerDownCmd, dockerStopCmd, dockerStartCmd, dockerRecreateCmd, dockerExecCmd, dockerLogsCmd, dockerShCmd, dockerPresetCmd, dockerKitCmd)
 
 	root.AddCommand(installCmd, updateCmd, syncCmd, versionCmd, statusCmd, commitCmd, pushCmd, prCmd, configCmd, pricingCmd, reportCmd, uiCmd, doctorCmd, dockerCmd)
 

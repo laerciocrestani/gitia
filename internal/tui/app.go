@@ -323,12 +323,25 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = msg.err.Error()
 		} else {
 			m.status = "Docker " + msg.action + " complete"
+			if m.screen == ScreenEnvironment && strings.HasPrefix(msg.action, "kit ") {
+				m.environment.reloadPresets()
+				m.environment.refreshListContent()
+			}
 		}
 		if m.screen == ScreenEnvironment {
 			return m, loadSnapshotSilent()
 		}
 		m.loading = true
 		return m, loadSnapshotCmd(m.loadProg)
+
+	case dockerPresetResultMsg:
+		if msg.err != nil {
+			m.status = msg.err.Error()
+			return m, nil
+		}
+		m.environment.showPresetResult(msg.summary, msg.output)
+		m.status = msg.summary
+		return m, nil
 
 	case execFallbackMsg:
 		return m, tea.ExecProcess(msg.fallback, func(err error) tea.Msg {
@@ -783,6 +796,53 @@ func (m appModel) updateEnvironment(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 
+	if m.environment.mode == environmentModePresetResult {
+		if msg.String() == "esc" {
+			m.environment.mode = environmentModePreset
+			m.environment.presetResult = ""
+			m.environment.presetSummary = ""
+			m.environment.refreshListContent()
+			m.status = "Presets"
+			return m, nil
+		}
+		return m, nil
+	}
+
+	if m.environment.mode == environmentModePreset {
+		switch msg.String() {
+		case "esc":
+			m.environment.leavePresetMode()
+			m.status = "Environment"
+			return m, nil
+		case "up", "k":
+			m.environment.moveCursor(-1)
+			return m, nil
+		case "down", "j":
+			m.environment.moveCursor(1)
+			return m, nil
+		case "I", "shift+i":
+			m.status = "Importando kit laravel…"
+			return m, runDockerKitImportCmd("laravel")
+		case "enter":
+			p, ok := m.environment.selectedPreset()
+			if !ok {
+				m.status = "Nenhum preset"
+				return m, nil
+			}
+			if svc == "" {
+				m.status = "Selecione um serviço antes (esc → lista)"
+				return m, nil
+			}
+			if p.Interactive {
+				m.status = "Preset interativo — use E (shell): " + p.Command
+				return m, nil
+			}
+			m.status = "Preset " + p.Label + "…"
+			return m, runDockerPresetExecCmd(snap, svc, p.ID)
+		}
+		return m, nil
+	}
+
 	switch msg.String() {
 	case "esc":
 		m.screen = ScreenDashboard
@@ -837,6 +897,10 @@ func (m appModel) updateEnvironment(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.environment.startExecPrompt()
 			return m, textinput.Blink
 		}
+		return m, nil
+	case "p":
+		m.environment.startPresetMode()
+		m.status = "Presets"
 		return m, nil
 	case "L", "shift+l":
 		if svc != "" && app.CanDockerLogs(snap) {

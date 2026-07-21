@@ -1,0 +1,78 @@
+version: 1
+presets:
+    - id: laravel.migrate
+      label: migrate
+      description: Executa migrations pendentes
+      command: php artisan migrate
+      kit: laravel
+    - id: laravel.migrate-fresh
+      label: migrate:fresh
+      description: Recria todas as tables e roda migrations
+      command: php artisan migrate:fresh
+      kit: laravel
+    - id: laravel.migrate-fresh-seed
+      label: migrate:fresh --seed
+      description: Fresh + seeders
+      command: php artisan migrate:fresh --seed
+      kit: laravel
+    - id: laravel.migrate-rollback
+      label: migrate:rollback
+      description: Desfaz o último batch de migrations
+      command: php artisan migrate:rollback
+      kit: laravel
+    - id: laravel.migrate-status
+      label: migrate:status
+      description: Status das migrations
+      command: php artisan migrate:status
+      kit: laravel
+    - id: laravel.db-seed
+      label: db:seed
+      description: Executa database seeders
+      command: php artisan db:seed
+      kit: laravel
+    - id: laravel.cache-clear
+      label: cache:clear
+      description: Limpa o cache da aplicação
+      command: php artisan cache:clear
+      kit: laravel
+    - id: laravel.config-clear
+      label: config:clear
+      description: Limpa o cache de configuração
+      command: php artisan config:clear
+      kit: laravel
+    - id: laravel.config-cache
+      label: config:cache
+      description: Gera cache de configuração
+      command: php artisan config:cache
+      kit: laravel
+    - id: laravel.route-clear
+      label: route:clear
+      description: Limpa o cache de rotas
+      command: php artisan route:clear
+      kit: laravel
+    - id: laravel.route-list
+      label: route:list
+      description: Lista rotas registradas
+      command: php artisan route:list
+      kit: laravel
+    - id: laravel.view-clear
+      label: view:clear
+      description: Limpa views compiladas
+      command: php artisan view:clear
+      kit: laravel
+    - id: laravel.optimize-clear
+      label: optimize:clear
+      description: Limpa todos os caches (optimize:clear)
+      command: php artisan optimize:clear
+      kit: laravel
+    - id: laravel.queue-work
+      label: queue:work
+      description: Processa jobs da fila (one-shot / até idle)
+      command: php artisan queue:work --stop-when-empty
+      kit: laravel
+    - id: laravel.tinker
+      label: tinker
+      description: REPL interativo (abre shell no container)
+      command: php artisan tinker
+      kit: laravel
+      interactive: true

@@ -1,8 +1,10 @@
 package app
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 
 	"github.com/laerciocrestani/openbench/internal/config"
 	dockerpkg "github.com/laerciocrestani/openbench/internal/docker"
@@ -22,15 +24,40 @@ type WorkspaceSnapshot struct {
 	HasDocker bool
 }
 
-// LoadWorkspaceSnapshot coleta overview, Docker, PR aberto, config e próximos passos.
+// SnapshotOpts controls optional expensive collectors (Docker / gh).
+type SnapshotOpts struct {
+	SkipDocker bool
+	SkipPR     bool
+}
+
+// LoadWorkspaceSnapshot coleta overview, Docker, PR aberto, config e próximos passos
+// a partir do diretório de trabalho atual.
 func LoadWorkspaceSnapshot() (*WorkspaceSnapshot, error) {
 	return LoadWorkspaceSnapshotWithProgress(nil)
 }
 
 // LoadWorkspaceSnapshotWithProgress coleta o snapshot reportando etapas ao Progress.
 func LoadWorkspaceSnapshotWithProgress(prog Progress) (*WorkspaceSnapshot, error) {
+	workDir, err := os.Getwd()
+	if err != nil {
+		return nil, err
+	}
+	return LoadWorkspaceSnapshotAt(workDir, prog)
+}
+
+// LoadWorkspaceSnapshotAt coleta o snapshot para um diretório de projeto específico.
+func LoadWorkspaceSnapshotAt(workDir string, prog Progress) (*WorkspaceSnapshot, error) {
+	return LoadWorkspaceSnapshotAtOpts(workDir, prog, SnapshotOpts{})
+}
+
+// LoadWorkspaceSnapshotAtOpts coleta o snapshot com coletores opcionais.
+func LoadWorkspaceSnapshotAtOpts(workDir string, prog Progress, opts SnapshotOpts) (*WorkspaceSnapshot, error) {
+	abs, err := filepath.Abs(workDir)
+	if err != nil {
+		return nil, err
+	}
+
 	var repo *gitpkg.Repo
-	workDir, _ := os.Getwd()
 
 	step := func(label string, fn func() error) error {
 		if prog == nil {
@@ -40,14 +67,14 @@ func LoadWorkspaceSnapshotWithProgress(prog Progress) (*WorkspaceSnapshot, error
 	}
 
 	if err := step("Opening repository", func() error {
-		r, err := gitpkg.New()
+		r, err := gitpkg.Open(abs)
 		if err != nil {
 			return err
 		}
 		repo = r
 		return repo.IsRepo()
 	}); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: %w", abs, err)
 	}
 
 	baseBranch := "main"
@@ -74,11 +101,13 @@ func LoadWorkspaceSnapshotWithProgress(prog Progress) (*WorkspaceSnapshot, error
 	}
 
 	var dockerOverview *dockerpkg.Overview
-	if err := step("Checking Docker environment", func() error {
-		dockerOverview = dockerpkg.LoadOverview(workDir)
-		return nil
-	}); err != nil {
-		return nil, err
+	if !opts.SkipDocker {
+		if err := step("Checking Docker environment", func() error {
+			dockerOverview = dockerpkg.LoadOverview(abs)
+			return nil
+		}); err != nil {
+			return nil, err
+		}
 	}
 
 	snap := &WorkspaceSnapshot{
@@ -90,9 +119,9 @@ func LoadWorkspaceSnapshotWithProgress(prog Progress) (*WorkspaceSnapshot, error
 		HasDocker: dockerpkg.HasDocker(),
 	}
 
-	if snap.HasGH {
+	if snap.HasGH && !opts.SkipPR {
 		if err := step("Checking pull request", func() error {
-			client, err := prpkg.New()
+			client, err := prpkg.Open(abs)
 			if err != nil {
 				return nil
 			}

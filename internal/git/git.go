@@ -18,10 +18,39 @@ func New() (*Repo, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Repo{dir: dir}, nil
+	return Open(dir)
+}
+
+// Open returns a Repo bound to dir (absolute or relative).
+func Open(dir string) (*Repo, error) {
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return nil, err
+	}
+	info, err := os.Stat(abs)
+	if err != nil {
+		return nil, err
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("not a directory: %s", abs)
+	}
+	return &Repo{dir: abs}, nil
+}
+
+// Dir returns the repository working directory.
+func (r *Repo) Dir() string {
+	return r.dir
 }
 
 func (r *Repo) run(args ...string) (string, error) {
+	out, err := r.runRaw(args...)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(out), nil
+}
+
+func (r *Repo) runRaw(args ...string) (string, error) {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = r.dir
 	var stdout, stderr bytes.Buffer
@@ -30,7 +59,7 @@ func (r *Repo) run(args ...string) (string, error) {
 	if err := cmd.Run(); err != nil {
 		return "", wrapGitAuthError(args, stderr.String(), err)
 	}
-	return strings.TrimSpace(stdout.String()), nil
+	return stdout.String(), nil
 }
 
 func (r *Repo) AddAll() error {
@@ -164,6 +193,11 @@ func (r *Repo) Push() error {
 func (r *Repo) IsRepo() error {
 	_, err := r.run("rev-parse", "--git-dir")
 	return err
+}
+
+// RemoteOriginURL returns the origin remote URL, if configured.
+func (r *Repo) RemoteOriginURL() (string, error) {
+	return r.run("remote", "get-url", "origin")
 }
 
 func (r *Repo) ProjectName() string {

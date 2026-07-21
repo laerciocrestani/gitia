@@ -2,7 +2,6 @@ package components
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -99,17 +98,7 @@ func buildFileRow(tag, path string, insertions, deletions, inner int, status str
 }
 
 func sortFileChanges(changes []gitpkg.FileChange) []gitpkg.FileChange {
-	sorted := make([]gitpkg.FileChange, len(changes))
-	copy(sorted, changes)
-	sort.Slice(sorted, func(i, j int) bool {
-		ti := sorted[i].Insertions + sorted[i].Deletions
-		tj := sorted[j].Insertions + sorted[j].Deletions
-		if ti != tj {
-			return ti > tj
-		}
-		return sorted[i].Path < sorted[j].Path
-	})
-	return sorted
+	return gitpkg.SortByChurn(changes)
 }
 
 func fileRowStyle(status string) lipgloss.Style {

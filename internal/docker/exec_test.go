@@ -33,6 +33,12 @@ func TestExecArgs(t *testing.T) {
 	if strings.Join(args, " ") != strings.Join(want, " ") {
 		t.Fatalf("execArgs = %v want %v", args, want)
 	}
+
+	args = execArgs("app", false, []string{"php", "artisan", "migrate"})
+	want = []string{"exec", "-T", "app", "php", "artisan", "migrate"}
+	if strings.Join(args, " ") != strings.Join(want, " ") {
+		t.Fatalf("execArgs non-interactive = %v want %v", args, want)
+	}
 }
 
 func TestBuildExecCommand(t *testing.T) {

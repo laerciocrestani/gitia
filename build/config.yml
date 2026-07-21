@@ -1,0 +1,46 @@
+version: '3'
+
+# This information is used to generate the build assets.
+info:
+  companyName: "openbench"
+  productName: "openbench"
+  productIdentifier: "com.laerciocrestani.openbench"
+  description: "Desktop app for AI commits, PRs and Docker workflows"
+  copyright: "(c) 2026, openbench"
+  comments: "openbench desktop"
+  version: "0.1.0"
+
+# Dev mode configuration
+dev_mode:
+  root_path: .
+  log_level: warn
+  debounce: 1000
+  ignore:
+    dir:
+      - .git
+      - node_modules
+      - frontend
+      - bin
+      - docs
+      - .tmp
+    file:
+      - .DS_Store
+      - .gitignore
+      - .gitkeep
+      - "*_test.go"
+    watched_extension:
+      - "*.go"
+      - "*.js"
+      - "*.ts"
+    git_ignore: true
+  executes:
+    - cmd: wails3 build DEV=true
+      type: blocking
+    - cmd: wails3 task common:dev:frontend
+      type: background
+    - cmd: wails3 task run
+      type: primary
+
+fileAssociations: []
+
+other: []

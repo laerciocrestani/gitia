@@ -73,6 +73,9 @@ func execArgs(service string, interactive bool, command []string) []string {
 	args := []string{"exec"}
 	if interactive {
 		args = append(args, "-it")
+	} else {
+		// Disable TTY allocation for capture / non-interactive runs.
+		args = append(args, "-T")
 	}
 	args = append(args, service)
 	return append(args, command...)
@@ -241,6 +244,45 @@ func Exec(opts ExecOptions) error {
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
 	return cmd.Run()
+}
+
+// ExecResult is the captured output of a non-interactive compose exec.
+type ExecResult struct {
+	Service  string
+	Command  []string
+	Output   string
+	ExitCode int
+}
+
+// ExecOutput runs a non-interactive command and captures combined stdout/stderr.
+func ExecOutput(opts ExecOptions) (*ExecResult, error) {
+	if opts.ComposeFile == "" {
+		return nil, fmt.Errorf("compose file não encontrado")
+	}
+	if opts.Service == "" {
+		return nil, fmt.Errorf("serviço não informado")
+	}
+	if len(opts.Command) == 0 {
+		return nil, fmt.Errorf("comando não informado")
+	}
+	cmd, err := BuildExecCommand(opts.ComposeFile, opts.Service, false, opts.Command...)
+	if err != nil {
+		return nil, err
+	}
+	out, runErr := cmd.CombinedOutput()
+	res := &ExecResult{
+		Service: opts.Service,
+		Command: append([]string{}, opts.Command...),
+		Output:  string(out),
+	}
+	if runErr != nil {
+		if ee, ok := runErr.(*exec.ExitError); ok {
+			res.ExitCode = ee.ExitCode()
+			return res, nil
+		}
+		return res, runErr
+	}
+	return res, nil
 }
 
 // Shell opens an interactive shell in the service container.

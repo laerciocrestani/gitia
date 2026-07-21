@@ -49,6 +49,7 @@ func helpContent() string {
 		"  R       Force recreate selected service",
 		"  E       Interactive shell in selected service",
 		"  x       Run custom exec command (e.g. php artisan migrate)",
+		"  p       Presets do projeto (kits: I importa laravel)",
 		"  L       Logs for selected service",
 		"  r       Refresh",
 		"",

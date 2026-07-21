@@ -185,14 +185,28 @@ func EstimateAICost(snap *WorkspaceSnapshot) string {
 }
 
 // ModelContextWindow returns a human-readable context window for known models.
+// Used in UI hints (índice de contexto / painel AI); unknown models return "".
 func ModelContextWindow(model string) string {
-	switch model {
-	case "gemini-2.5-flash-lite", "gemini-2.0-flash-lite",
-		"gemini-2.5-flash", "gemini-2.0-flash",
-		"gemini-3.1-flash-lite", "gemini-3.5-flash", "gemini-3-flash", "gemini-3-flash-preview":
-		return "128k"
-	case "gemini-2.5-pro", "gemini-3.1-pro", "gemini-3.1-pro-preview":
+	m := strings.ToLower(strings.TrimSpace(model))
+	switch {
+	case m == "":
+		return ""
+	case strings.Contains(m, "gemini-2.5-pro"), strings.Contains(m, "gemini-3.1-pro"),
+		strings.Contains(m, "gemini-1.5-pro"):
 		return "1M"
+	case strings.HasPrefix(m, "gemini-"):
+		return "128k"
+	case strings.Contains(m, "gpt-4.1"), strings.Contains(m, "gpt-4o"),
+		strings.Contains(m, "o3"), strings.Contains(m, "o4-mini"):
+		return "128k"
+	case strings.Contains(m, "gpt-4-turbo"), strings.Contains(m, "gpt-4-1106"):
+		return "128k"
+	case strings.Contains(m, "deepseek"):
+		return "128k"
+	case strings.Contains(m, "claude-3-5"), strings.Contains(m, "claude-3.5"),
+		strings.Contains(m, "claude-4"), strings.Contains(m, "claude-sonnet"),
+		strings.Contains(m, "claude-opus"):
+		return "200k"
 	default:
 		return ""
 	}

@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -10,6 +11,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/laerciocrestani/openbench/internal/app"
 	dockerpkg "github.com/laerciocrestani/openbench/internal/docker"
+	"github.com/laerciocrestani/openbench/internal/dockerpresets"
 	"github.com/laerciocrestani/openbench/internal/tui/components"
 )
 
@@ -18,17 +20,23 @@ type environmentMode int
 const (
 	environmentModeList environmentMode = iota
 	environmentModeExec
+	environmentModePreset
+	environmentModePresetResult
 )
 
 type environmentModel struct {
-	snap         *app.WorkspaceSnapshot
-	containers   []dockerpkg.ContainerSummary
-	cursor       int
-	listViewport viewport.Model
-	ready        bool
-	mode         environmentMode
-	execInput    textinput.Model
-	execReady    bool
+	snap          *app.WorkspaceSnapshot
+	containers    []dockerpkg.ContainerSummary
+	cursor        int
+	listViewport  viewport.Model
+	ready         bool
+	mode          environmentMode
+	execInput     textinput.Model
+	execReady     bool
+	presets       []dockerpresets.Preset
+	presetCursor  int
+	presetResult  string
+	presetSummary string
 }
 
 func newEnvironmentModel() environmentModel {
@@ -45,10 +53,27 @@ func (m *environmentModel) Load(snap *app.WorkspaceSnapshot) {
 	m.mode = environmentModeList
 	m.execInput.SetValue("")
 	m.execInput.Blur()
+	m.presetResult = ""
+	m.presetSummary = ""
 	if snap != nil && snap.Docker != nil {
 		m.containers = append(m.containers, snap.Docker.Containers...)
 	}
+	m.reloadPresets()
 	m.refreshListContent()
+}
+
+func (m *environmentModel) reloadPresets() {
+	m.presets = nil
+	m.presetCursor = 0
+	cwd, err := os.Getwd()
+	if err != nil {
+		return
+	}
+	f, err := dockerpresets.LoadProject(cwd)
+	if err != nil || f == nil {
+		return
+	}
+	m.presets = append(m.presets, f.Presets...)
 }
 
 func (m *environmentModel) SetSize(width, height int) {
@@ -56,8 +81,12 @@ func (m *environmentModel) SetSize(width, height int) {
 	if listRows < 6 {
 		listRows = 6
 	}
-	if len(m.containers) > 0 && listRows > len(m.containers) {
-		listRows = len(m.containers)
+	n := len(m.containers)
+	if m.mode == environmentModePreset {
+		n = len(m.presets)
+	}
+	if n > 0 && listRows > n {
+		listRows = n
 	}
 	if !m.ready {
 		m.listViewport = viewport.New(width, listRows)
@@ -78,6 +107,24 @@ func (m *environmentModel) refreshListContent() {
 }
 
 func (m *environmentModel) listContent() string {
+	if m.mode == environmentModePreset {
+		if len(m.presets) == 0 {
+			return styleHint.Render("  Nenhum preset — pressione I para importar kit laravel")
+		}
+		lines := make([]string, len(m.presets))
+		for i, p := range m.presets {
+			mark := "  "
+			if i == m.presetCursor {
+				mark = "> "
+			}
+			extra := ""
+			if p.Interactive {
+				extra = " · interactive"
+			}
+			lines[i] = mark + styleKey.Render(p.Label) + styleHint.Render("  "+p.Command+extra)
+		}
+		return strings.Join(lines, "\n")
+	}
 	if len(m.containers) == 0 {
 		return ""
 	}
@@ -89,13 +136,20 @@ func (m *environmentModel) listContent() string {
 }
 
 func (m *environmentModel) syncScroll() {
-	if !m.ready || len(m.containers) == 0 {
+	if !m.ready {
 		return
 	}
-	if m.cursor >= m.listViewport.YOffset+m.listViewport.Height {
-		m.listViewport.SetYOffset(m.cursor - m.listViewport.Height + 1)
-	} else if m.cursor < m.listViewport.YOffset {
-		m.listViewport.SetYOffset(m.cursor)
+	cur, n := m.cursor, len(m.containers)
+	if m.mode == environmentModePreset {
+		cur, n = m.presetCursor, len(m.presets)
+	}
+	if n == 0 {
+		return
+	}
+	if cur >= m.listViewport.YOffset+m.listViewport.Height {
+		m.listViewport.SetYOffset(cur - m.listViewport.Height + 1)
+	} else if cur < m.listViewport.YOffset {
+		m.listViewport.SetYOffset(cur)
 	}
 }
 
@@ -113,7 +167,28 @@ func (m *environmentModel) selectedContainer() (dockerpkg.ContainerSummary, bool
 	return m.containers[m.cursor], true
 }
 
+func (m *environmentModel) selectedPreset() (dockerpresets.Preset, bool) {
+	if m.presetCursor < 0 || m.presetCursor >= len(m.presets) {
+		return dockerpresets.Preset{}, false
+	}
+	return m.presets[m.presetCursor], true
+}
+
 func (m *environmentModel) moveCursor(delta int) {
+	if m.mode == environmentModePreset {
+		if len(m.presets) == 0 {
+			return
+		}
+		m.presetCursor += delta
+		if m.presetCursor < 0 {
+			m.presetCursor = 0
+		}
+		if m.presetCursor >= len(m.presets) {
+			m.presetCursor = len(m.presets) - 1
+		}
+		m.refreshListContent()
+		return
+	}
 	if len(m.containers) == 0 {
 		return
 	}
@@ -137,6 +212,26 @@ func (m *environmentModel) startExecPrompt() {
 func (m *environmentModel) cancelExecPrompt() {
 	m.mode = environmentModeList
 	m.execInput.Blur()
+}
+
+func (m *environmentModel) startPresetMode() {
+	m.reloadPresets()
+	m.mode = environmentModePreset
+	m.presetCursor = 0
+	m.refreshListContent()
+}
+
+func (m *environmentModel) leavePresetMode() {
+	m.mode = environmentModeList
+	m.presetResult = ""
+	m.presetSummary = ""
+	m.refreshListContent()
+}
+
+func (m *environmentModel) showPresetResult(summary, output string) {
+	m.mode = environmentModePresetResult
+	m.presetSummary = summary
+	m.presetResult = output
 }
 
 func (m *environmentModel) Update(msg tea.Msg) (environmentModel, tea.Cmd) {
@@ -182,6 +277,40 @@ func (m environmentModel) View(width int, tick int) string {
 		return b.String()
 	}
 
+	if m.mode == environmentModePresetResult {
+		b.WriteString(styleHint.Render("  " + m.presetSummary))
+		b.WriteString("\n\n")
+		out := m.presetResult
+		if strings.TrimSpace(out) == "" {
+			out = "(sem output)"
+		}
+		// Keep result readable in the TUI viewport budget.
+		lines := strings.Split(out, "\n")
+		if len(lines) > 24 {
+			lines = append(lines[:24], "…")
+		}
+		for _, line := range lines {
+			b.WriteString("  ")
+			b.WriteString(line)
+			b.WriteString("\n")
+		}
+		b.WriteString("\n")
+		b.WriteString(styleHint.Render("  esc fecha o resumo"))
+		return b.String()
+	}
+
+	if m.mode == environmentModePreset {
+		svc := m.selectedService()
+		b.WriteString(styleHint.Render(fmt.Sprintf("  Presets · serviço alvo: %s", svc)))
+		b.WriteString("\n\n")
+		if m.ready {
+			b.WriteString(m.listViewport.View())
+		} else {
+			b.WriteString(m.listContent())
+		}
+		return b.String()
+	}
+
 	if len(m.containers) == 0 {
 		b.WriteString(styleHint.Render("  Nenhum serviço encontrado"))
 		return b.String()
@@ -202,9 +331,17 @@ func (m environmentModel) View(width int, tick int) string {
 }
 
 func environmentHelpLine(snap *app.WorkspaceSnapshot, mode environmentMode, service string) string {
-	if mode == environmentModeExec {
+	switch mode {
+	case environmentModeExec:
 		return styleKey.Render("enter") + " run  " +
 			styleKey.Render("esc") + " cancel"
+	case environmentModePreset:
+		return styleKey.Render("↑↓") + " select  " +
+			styleKey.Render("enter") + " run  " +
+			styleKey.Render("I") + " import laravel  " +
+			styleKey.Render("esc") + " back"
+	case environmentModePresetResult:
+		return styleKey.Render("esc") + " fechar resumo"
 	}
 	parts := []string{
 		styleKey.Render("↑↓") + " select",
@@ -213,6 +350,7 @@ func environmentHelpLine(snap *app.WorkspaceSnapshot, mode environmentMode, serv
 		styleKey.Render("R") + " recreate",
 		styleKey.Render("E") + " shell",
 		styleKey.Render("x") + " exec",
+		styleKey.Render("p") + " presets",
 		styleKey.Render("L") + " logs",
 	}
 	if app.CanDockerProjectUp(snap) {

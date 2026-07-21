@@ -13,6 +13,7 @@ type SyncOptions struct {
 	PruneRemote bool
 	Base        string
 	DryRun      bool
+	WorkDir     string // optional; when set, git runs in this directory
 	Progress    Progress
 }
 
@@ -24,7 +25,7 @@ func RunSync(opts SyncOptions) error {
 		prog = sess
 	}
 
-	repo, err := gitpkg.New()
+	repo, err := openRepo(opts.WorkDir)
 	if err != nil {
 		return err
 	}

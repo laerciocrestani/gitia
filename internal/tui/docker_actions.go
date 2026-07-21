@@ -1,11 +1,14 @@
 package tui
 
 import (
+	"fmt"
+	"os"
 	"os/exec"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/laerciocrestani/openbench/internal/app"
 	dockerpkg "github.com/laerciocrestani/openbench/internal/docker"
+	"github.com/laerciocrestani/openbench/internal/dockerpresets"
 )
 
 func runDockerUpCmd() tea.Cmd {
@@ -95,6 +98,69 @@ func runDockerShellCmd(snap *app.WorkspaceSnapshot) tea.Cmd {
 
 func errComposeMissing() error {
 	return appRunError("compose file não encontrado")
+}
+
+type dockerPresetResultMsg struct {
+	summary string
+	output  string
+	err     error
+}
+
+func runDockerPresetExecCmd(snap *app.WorkspaceSnapshot, service, presetID string) tea.Cmd {
+	return func() tea.Msg {
+		cwd, err := os.Getwd()
+		if err != nil {
+			return dockerPresetResultMsg{err: err}
+		}
+		preset, err := dockerpresets.FindPreset(cwd, presetID)
+		if err != nil {
+			return dockerPresetResultMsg{err: err}
+		}
+		args := dockerpresets.ParseCommand(preset.Command)
+		if len(args) == 0 {
+			return dockerPresetResultMsg{err: fmt.Errorf("preset sem comando")}
+		}
+		if preset.Interactive {
+			return dockerPresetResultMsg{
+				err: fmt.Errorf("preset interativo — use E (shell) e rode: %s", preset.Command),
+			}
+		}
+		compose := app.DockerComposeFile(snap)
+		if compose == "" {
+			return dockerPresetResultMsg{err: errComposeMissing()}
+		}
+		res, err := dockerpkg.ExecOutput(dockerpkg.ExecOptions{
+			ComposeFile: compose,
+			Service:     service,
+			Command:     args,
+		})
+		if err != nil {
+			return dockerPresetResultMsg{err: err}
+		}
+		summary := fmt.Sprintf("%s @ %s — exit %d", preset.Label, service, res.ExitCode)
+		if res.ExitCode == 0 {
+			summary = fmt.Sprintf("%s @ %s — ok", preset.Label, service)
+		}
+		return dockerPresetResultMsg{summary: summary, output: res.Output}
+	}
+}
+
+func runDockerKitImportCmd(kitID string) tea.Cmd {
+	return func() tea.Msg {
+		cwd, err := os.Getwd()
+		if err != nil {
+			return dockerActionMsg{action: "kit-import", err: err}
+		}
+		added, err := dockerpresets.ImportKit(cwd, kitID)
+		if err != nil {
+			return dockerActionMsg{action: "kit-import", err: err}
+		}
+		msg := fmt.Sprintf("kit %s: %d adicionados", kitID, added)
+		if added == 0 {
+			msg = fmt.Sprintf("kit %s: já importado", kitID)
+		}
+		return dockerActionMsg{action: msg, err: nil}
+	}
 }
 
 type appRunError string
