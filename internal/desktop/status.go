@@ -17,6 +17,8 @@ type ProjectStatus struct {
 	Alias         string `json:"alias,omitempty"`
 	Branch        string `json:"branch"`
 	Dirty         bool   `json:"dirty"`
+	Insertions    int    `json:"insertions"`
+	Deletions     int    `json:"deletions"`
 	StatusLabel   string `json:"statusLabel"`
 	DockerSummary string `json:"dockerSummary"`
 	DockerVisible bool   `json:"dockerVisible"`
@@ -70,6 +72,10 @@ func LoadProjectStatus(projectPath string, includePR bool) ProjectStatus {
 	}
 	st.Dirty = overview.IsDirty()
 	st.StatusLabel = statusLabel(overview.IsDirty(), overview.Staged, overview.Modified, overview.Untracked)
+	for _, c := range overview.FileChanges {
+		st.Insertions += c.Insertions
+		st.Deletions += c.Deletions
+	}
 
 	// Avoid docker info / compose ps on the hub hot path (can stall for seconds).
 	if dockerpkg.HasDocker() && dockerpkg.FindComposeFile(abs) != "" {

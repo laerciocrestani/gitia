@@ -91,6 +91,7 @@ import {
   templateNameSeed,
   type BranchTemplate,
 } from "@/lib/branch-templates"
+import { cn } from "@/lib/utils"
 import {
   ArrowDownUp,
   ChartColumn,
@@ -128,6 +129,19 @@ function errText(e: unknown): string {
   } catch {
     return String(e)
   }
+}
+
+/** Unwrap Wails event payloads (object, {data}, or {data:[payload]}). */
+function wailsEventData<T>(ev: unknown): T | null {
+  if (ev == null) return null
+  let raw: unknown = ev
+  if (typeof ev === "object" && ev !== null && "data" in ev) {
+    raw = (ev as { data: unknown }).data
+  }
+  if (Array.isArray(raw)) {
+    raw = raw.length > 0 ? raw[0] : null
+  }
+  return (raw as T) ?? null
 }
 
 type DiffRow =
@@ -212,6 +226,31 @@ function StatusBadge({ label, dirty }: { label: string; dirty: boolean }) {
     <Badge variant={dirty ? "secondary" : "outline"} className="font-normal">
       {label || (dirty ? "dirty" : "clean")}
     </Badge>
+  )
+}
+
+/** Compact +N −M line stats (VS Code / Cursor SCM style). */
+function DiffStat({
+  insertions = 0,
+  deletions = 0,
+  className,
+}: {
+  insertions?: number
+  deletions?: number
+  className?: string
+}) {
+  if (insertions <= 0 && deletions <= 0) return null
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1 font-mono text-[11px] tabular-nums leading-none",
+        className,
+      )}
+      title={`+${insertions} −${deletions}`}
+    >
+      {insertions > 0 && <span className="text-emerald-500">+{insertions}</span>}
+      {deletions > 0 && <span className="text-rose-400">−{deletions}</span>}
+    </span>
   )
 }
 
@@ -431,8 +470,7 @@ function ChangedFilesTable({
         <TableRow>
           <TableHead className="w-10">St</TableHead>
           <TableHead>Arquivo</TableHead>
-          <TableHead className="w-20 text-right">+</TableHead>
-          <TableHead className="w-20 text-right">−</TableHead>
+          <TableHead className="w-24 text-right">Diff</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -446,11 +484,8 @@ function ChangedFilesTable({
               <FileStatusBadge status={f.status} />
             </TableCell>
             <TableCell className="font-mono text-xs">{f.path}</TableCell>
-            <TableCell className="text-right font-mono text-xs text-emerald-500">
-              {f.insertions > 0 ? `+${f.insertions}` : "0"}
-            </TableCell>
-            <TableCell className="text-right font-mono text-xs text-destructive">
-              {f.deletions > 0 ? `−${f.deletions}` : "0"}
+            <TableCell className="text-right">
+              <DiffStat insertions={f.insertions} deletions={f.deletions} className="justify-end" />
             </TableCell>
           </TableRow>
         ))}
@@ -567,8 +602,12 @@ function ProjectTabs({
               onClick={() => onSwitch(s.path)}
               title={s.path}
             >
+              <FolderOpen className="size-3.5 shrink-0 opacity-70" />
               <span className="font-medium">{s.alias || s.repoName}</span>
-              {s.dirty && <span className="size-1.5 rounded-full bg-amber-500" />}
+              <DiffStat insertions={s.insertions} deletions={s.deletions} />
+              {s.dirty && !(s.insertions > 0 || s.deletions > 0) && (
+                <span className="size-1.5 rounded-full bg-amber-500" />
+              )}
               {s.hasOpenPR && <GitPullRequest className="size-3 text-sky-500" />}
             </button>
             <Button
@@ -643,7 +682,20 @@ function DashboardView({
             <CardTitle className="text-sm">Status</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-2">
-            <StatusBadge label={dash.statusLabel} dirty={dash.dirty} />
+            <div className="flex flex-wrap items-center gap-2">
+              <StatusBadge label={dash.statusLabel} dirty={dash.dirty} />
+              <DiffStat
+                insertions={
+                  dash.contextIndex?.insertions ??
+                  (dash.changedFiles ?? []).reduce((a, f) => a + (f.insertions || 0), 0)
+                }
+                deletions={
+                  dash.contextIndex?.deletions ??
+                  (dash.changedFiles ?? []).reduce((a, f) => a + (f.deletions || 0), 0)
+                }
+                className="text-xs"
+              />
+            </div>
             <div className="flex flex-wrap gap-1.5 text-xs text-muted-foreground">
               <Badge variant="outline">staged {dash.staged}</Badge>
               <Badge variant="outline">mod {dash.modified}</Badge>
@@ -711,6 +763,7 @@ function projectDisplayName(path: string): string {
 function Welcome({
   recent,
   pinned,
+  statuses,
   busy,
   onOpenDialog,
   onOpenPath,
@@ -719,6 +772,7 @@ function Welcome({
 }: {
   recent: string[]
   pinned: { path: string; alias?: string }[]
+  statuses: ProjectStatus[]
   busy: boolean
   onOpenDialog: () => void
   onOpenPath: (path: string) => void
@@ -727,6 +781,7 @@ function Welcome({
 }) {
   const pinnedPaths = new Set(pinned.map((p) => p.path))
   const recentOnly = recent.filter((p) => !pinnedPaths.has(p)).slice(0, 8)
+  const statusByPath = new Map(statuses.map((s) => [s.path, s]))
 
   return (
     <div className="grid h-full min-h-0 grid-cols-1 gap-4 lg:grid-cols-2">
@@ -750,35 +805,43 @@ function Welcome({
           <div className="flex flex-col gap-2">
             <h2 className="text-sm font-medium text-muted-foreground">Fixados</h2>
             <div className="grid grid-cols-1 gap-2">
-              {pinned.map((p) => (
-                <div key={p.path} className="group relative">
-                  <button
-                    type="button"
-                    className="flex w-full items-center gap-2 rounded-xl border bg-background px-4 py-3 text-left transition-colors hover:bg-muted/50"
-                    onClick={() => onOpenPath(p.path)}
-                    title={p.path}
-                    disabled={busy}
-                  >
-                    <Pin className="size-3.5 shrink-0 text-primary" />
-                    <span className="truncate font-medium">
-                      {p.alias || projectDisplayName(p.path)}
-                    </span>
-                  </button>
-                  <Button
-                    variant="ghost"
-                    size="icon-xs"
-                    className="absolute top-2 right-2 opacity-0 group-hover:opacity-100"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      onUnpin(p.path)
-                    }}
-                    title="Desafixar"
-                    disabled={busy}
-                  >
-                    <PinOff />
-                  </Button>
-                </div>
-              ))}
+              {pinned.map((p) => {
+                const st = statusByPath.get(p.path)
+                return (
+                  <div key={p.path} className="group relative">
+                    <button
+                      type="button"
+                      className="flex w-full items-center gap-2 rounded-xl border bg-background px-4 py-3 pr-10 text-left transition-colors hover:bg-muted/50"
+                      onClick={() => onOpenPath(p.path)}
+                      title={p.path}
+                      disabled={busy}
+                    >
+                      <Pin className="size-3.5 shrink-0 text-primary" />
+                      <span className="min-w-0 flex-1 truncate font-medium">
+                        {p.alias || projectDisplayName(p.path)}
+                      </span>
+                      <DiffStat
+                        insertions={st?.insertions}
+                        deletions={st?.deletions}
+                        className="shrink-0"
+                      />
+                    </button>
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
+                      className="absolute top-2 right-2 opacity-0 group-hover:opacity-100"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onUnpin(p.path)
+                      }}
+                      title="Desafixar"
+                      disabled={busy}
+                    >
+                      <PinOff />
+                    </Button>
+                  </div>
+                )
+              })}
             </div>
           </div>
         )}
@@ -1682,8 +1745,7 @@ function App() {
     })
 
     const offDashboard = Events.On("project:dashboard", (ev) => {
-      const raw = ev?.data ?? ev
-      const d = raw as Dashboard | null
+      const d = wailsEventData<Dashboard>(ev)
       if (d && typeof d === "object" && "path" in d) {
         setDash(d)
         void actionsRef.current.refreshStatuses()
@@ -1691,7 +1753,7 @@ function App() {
     })
 
     const offUpdatePrompt = Events.On("update:prompt", (ev) => {
-      const raw = (ev?.data ?? ev) as UpdateCheckResult | null
+      const raw = wailsEventData<UpdateCheckResult>(ev)
       if (raw && typeof raw === "object" && raw.available) {
         setUpdatePrompt(raw)
         setUpdateResult(raw)
@@ -1731,10 +1793,21 @@ function App() {
         </span>
         {dash && (
           <span
-            className="relative z-10 max-w-[40%] truncate font-mono text-xs text-muted-foreground [--wails-draggable:no-drag]"
+            className="relative z-10 flex max-w-[50%] items-center gap-2 truncate font-mono text-xs text-muted-foreground [--wails-draggable:no-drag]"
             title={dash.path}
           >
-            {dash.repoName}
+            <FolderOpen className="size-3.5 shrink-0 opacity-70" />
+            <span className="truncate">{dash.repoName}</span>
+            <DiffStat
+              insertions={
+                dash.contextIndex?.insertions ??
+                (dash.changedFiles ?? []).reduce((a, f) => a + (f.insertions || 0), 0)
+              }
+              deletions={
+                dash.contextIndex?.deletions ??
+                (dash.changedFiles ?? []).reduce((a, f) => a + (f.deletions || 0), 0)
+              }
+            />
           </span>
         )}
         <div className="relative z-10 ml-auto flex items-center gap-1 [--wails-draggable:no-drag]">
@@ -2007,6 +2080,7 @@ function App() {
           <Welcome
             recent={recent}
             pinned={prefs?.pinned ?? []}
+            statuses={statuses}
             busy={busy}
             onOpenDialog={() => void openDialog()}
             onOpenPath={(p) => void openPath(p)}

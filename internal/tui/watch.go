@@ -12,10 +12,11 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 	tea "github.com/charmbracelet/bubbletea"
+	gitpkg "github.com/laerciocrestani/openbench/internal/git"
 )
 
-// Watch git metadata only (+ light poll). Recursive directory watches exhaust
-// FDs on macOS kqueue (one FD per file in each watched dir).
+// Watch git metadata + cheap status fingerprint poll. Recursive directory
+// watches exhaust FDs on macOS kqueue (one FD per file in each watched dir).
 
 type repoWatcher struct {
 	done chan struct{}
@@ -33,7 +34,7 @@ func startRepoWatcher(p *tea.Program, root string) (*repoWatcher, error) {
 	}
 
 	rw := &repoWatcher{done: make(chan struct{})}
-	go rw.loop(p, watcher)
+	go rw.loop(p, root, watcher)
 	return rw, nil
 }
 
@@ -41,10 +42,14 @@ func (rw *repoWatcher) Close() {
 	rw.once.Do(func() { close(rw.done) })
 }
 
-func (rw *repoWatcher) loop(p *tea.Program, watcher *fsnotify.Watcher) {
+func (rw *repoWatcher) loop(p *tea.Program, root string, watcher *fsnotify.Watcher) {
 	defer watcher.Close()
 
-	var timer *time.Timer
+	var (
+		timer  *time.Timer
+		lastFP string
+		haveFP bool
+	)
 
 	resetDebounce := func() {
 		if timer != nil {
@@ -60,6 +65,28 @@ func (rw *repoWatcher) loop(p *tea.Program, watcher *fsnotify.Watcher) {
 		})
 	}
 
+	pollFingerprint := func() {
+		fp, err := gitpkg.StatusFingerprintAt(root)
+		if err != nil {
+			return
+		}
+		if !haveFP {
+			lastFP = fp
+			haveFP = true
+			return
+		}
+		if fp == lastFP {
+			return
+		}
+		lastFP = fp
+		resetDebounce()
+	}
+
+	if fp, err := gitpkg.StatusFingerprintAt(root); err == nil {
+		lastFP = fp
+		haveFP = true
+	}
+
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
@@ -72,7 +99,7 @@ func (rw *repoWatcher) loop(p *tea.Program, watcher *fsnotify.Watcher) {
 			return
 
 		case <-ticker.C:
-			resetDebounce()
+			pollFingerprint()
 
 		case _, ok := <-watcher.Errors:
 			if !ok {
@@ -85,6 +112,10 @@ func (rw *repoWatcher) loop(p *tea.Program, watcher *fsnotify.Watcher) {
 			}
 			if event.Has(fsnotify.Chmod) && !event.Has(fsnotify.Write|fsnotify.Create|fsnotify.Remove|fsnotify.Rename) {
 				continue
+			}
+			if fp, err := gitpkg.StatusFingerprintAt(root); err == nil {
+				lastFP = fp
+				haveFP = true
 			}
 			resetDebounce()
 		}

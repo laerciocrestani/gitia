@@ -9,9 +9,10 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
+	gitpkg "github.com/laerciocrestani/openbench/internal/git"
 )
 
-const (
+var (
 	repoWatchDebounce     = 400 * time.Millisecond
 	repoWatchPollInterval = 2 * time.Second
 )
@@ -19,15 +20,18 @@ const (
 // RepoWatchCallback is invoked (debounced) when the working tree may have changed.
 type RepoWatchCallback func()
 
-// RepoWatcher watches git metadata (not the full tree) and polls lightly.
-// Full-tree fsnotify is unsafe on macOS: kqueue opens one FD per file in each
-// watched directory and large repos hit "too many open files".
+// statusFingerprinter is overridable in tests.
+var statusFingerprinter = gitpkg.StatusFingerprintAt
+
+// RepoWatcher watches git metadata (not the full tree) and polls a cheap
+// status fingerprint. Full-tree fsnotify is unsafe on macOS: kqueue opens one
+// FD per file in each watched directory and large repos hit EMFILE.
 type RepoWatcher struct {
 	done chan struct{}
 	once sync.Once
 }
 
-// StartRepoWatcher watches git metadata under root and polls as a fallback.
+// StartRepoWatcher watches git metadata under root and polls fingerprints.
 // Caller must Close when done.
 func StartRepoWatcher(root string, onChange RepoWatchCallback) (*RepoWatcher, error) {
 	root = filepath.Clean(root)
@@ -49,13 +53,12 @@ func StartRepoWatcher(root string, onChange RepoWatchCallback) (*RepoWatcher, er
 
 	for _, p := range gitWatchPaths(root) {
 		if err := watcher.Add(p); err != nil {
-			// Partial watch is fine; poll covers the rest.
 			continue
 		}
 	}
 
 	rw := &RepoWatcher{done: make(chan struct{})}
-	go rw.loop(watcher, onChange)
+	go rw.loop(root, watcher, onChange)
 	return rw, nil
 }
 
@@ -67,10 +70,22 @@ func (rw *RepoWatcher) Close() {
 	rw.once.Do(func() { close(rw.done) })
 }
 
-func (rw *RepoWatcher) loop(watcher *fsnotify.Watcher, onChange RepoWatchCallback) {
+func (rw *RepoWatcher) loop(root string, watcher *fsnotify.Watcher, onChange RepoWatchCallback) {
 	defer watcher.Close()
 
-	var timer *time.Timer
+	var (
+		timer  *time.Timer
+		lastFP string
+		haveFP bool
+	)
+
+	notify := func() {
+		if onChange == nil {
+			return
+		}
+		onChange()
+	}
+
 	resetDebounce := func() {
 		if timer != nil {
 			timer.Stop()
@@ -80,11 +95,32 @@ func (rw *RepoWatcher) loop(watcher *fsnotify.Watcher, onChange RepoWatchCallbac
 			case <-rw.done:
 				return
 			default:
-				if onChange != nil {
-					onChange()
-				}
+				notify()
 			}
 		})
+	}
+
+	pollFingerprint := func() {
+		fp, err := statusFingerprinter(root)
+		if err != nil {
+			return
+		}
+		if !haveFP {
+			lastFP = fp
+			haveFP = true
+			return
+		}
+		if fp == lastFP {
+			return
+		}
+		lastFP = fp
+		resetDebounce()
+	}
+
+	// Seed fingerprint so the first tick does not spuriously refresh.
+	if fp, err := statusFingerprinter(root); err == nil {
+		lastFP = fp
+		haveFP = true
 	}
 
 	ticker := time.NewTicker(repoWatchPollInterval)
@@ -99,7 +135,7 @@ func (rw *RepoWatcher) loop(watcher *fsnotify.Watcher, onChange RepoWatchCallbac
 			return
 
 		case <-ticker.C:
-			resetDebounce()
+			pollFingerprint()
 
 		case _, ok := <-watcher.Errors:
 			if !ok {
@@ -112,6 +148,11 @@ func (rw *RepoWatcher) loop(watcher *fsnotify.Watcher, onChange RepoWatchCallbac
 			}
 			if event.Has(fsnotify.Chmod) && !event.Has(fsnotify.Write|fsnotify.Create|fsnotify.Remove|fsnotify.Rename) {
 				continue
+			}
+			// After git metadata change, refresh fingerprint baseline on next poll.
+			if fp, err := statusFingerprinter(root); err == nil {
+				lastFP = fp
+				haveFP = true
 			}
 			resetDebounce()
 		}
@@ -158,7 +199,6 @@ func resolveGitDir(root string) (string, error) {
 	if fi.IsDir() {
 		return gitPath, nil
 	}
-	// Worktree / submodule: ".git" is a file with "gitdir: <path>".
 	f, err := os.Open(gitPath)
 	if err != nil {
 		return "", err
