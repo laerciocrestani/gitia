@@ -38,13 +38,13 @@ func (e *APIError) retryHint() string {
 func statusHint(code int) string {
 	switch code {
 	case http.StatusServiceUnavailable:
-		return "modelo com alta demanda no momento — tente novamente em alguns minutos ou escolha outro modelo (`ob config`)"
+		return "modelo com alta demanda no momento — tente novamente ou escolha outro modelo"
 	case http.StatusTooManyRequests:
-		return "muitas requisições — aguarde um momento e tente novamente"
+		return "muitas requisições — aguarde um momento e tente novamente, ou escolha outro modelo"
 	case http.StatusUnauthorized, http.StatusForbidden:
-		return "chave API inválida ou sem permissão — verifique com `ob config`"
+		return "chave API inválida ou sem permissão — verifique em Configurações → IA"
 	case http.StatusNotFound:
-		return "modelo não encontrado — confira o nome em `ob config`"
+		return "modelo não encontrado — confira o nome em Configurações → IA ou escolha outro modelo"
 	case http.StatusBadGateway, http.StatusGatewayTimeout:
 		return "serviço temporariamente indisponível — tente novamente em instantes"
 	case http.StatusInternalServerError:

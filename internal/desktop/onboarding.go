@@ -33,7 +33,11 @@ type OnboardingStatus struct {
 }
 
 // CheckOnboarding inspects config, gh and optional project remote.
+// API key is the only hard blocker for commit. gh/remote are warnings:
+// required only for push/PR (frontend filters by action).
 func CheckOnboarding(projectPath string) (*OnboardingStatus, error) {
+	AugmentUserPath()
+
 	st := &OnboardingStatus{Issues: []OnboardingIssue{}}
 
 	cfg, path, err := config.LoadExisting()
@@ -68,16 +72,16 @@ func CheckOnboarding(projectPath string) (*OnboardingStatus, error) {
 			st.Issues = append(st.Issues, OnboardingIssue{
 				ID:       "gh_auth",
 				Title:    "GitHub CLI sem autenticação",
-				Hint:     "No terminal: gh auth login",
-				Blocking: true,
+				Hint:     "No terminal: gh auth login — necessário para push/PR.",
+				Blocking: false,
 			})
 		}
 	} else {
 		st.Issues = append(st.Issues, OnboardingIssue{
 			ID:       "gh_install",
 			Title:    "GitHub CLI (gh) não encontrado",
-			Hint:     "Instale: https://cli.github.com/ — necessário para criar PRs.",
-			Blocking: true,
+			Hint:     "Instale: https://cli.github.com/ — necessário para push/PR.",
+			Blocking: false,
 		})
 	}
 
@@ -91,14 +95,19 @@ func CheckOnboarding(projectPath string) (*OnboardingStatus, error) {
 				st.Issues = append(st.Issues, OnboardingIssue{
 					ID:       "remote",
 					Title:    "Remote origin ausente",
-					Hint:     "Configure: git remote add origin <url>",
-					Blocking: true,
+					Hint:     "Configure: git remote add origin <url> — necessário para push/PR.",
+					Blocking: false,
 				})
 			}
 		}
 	}
 
-	st.NeedsOnboarding = len(st.Issues) > 0
+	for _, iss := range st.Issues {
+		if iss.Blocking {
+			st.NeedsOnboarding = true
+			break
+		}
+	}
 	return st, nil
 }
 

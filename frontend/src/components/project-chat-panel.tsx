@@ -45,7 +45,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { Bot, CircleDollarSign, Loader2, Send, ShieldAlert, Square, Trash2 } from "lucide-react"
+import { Bot, CircleDollarSign, Loader2, RefreshCw, Send, ShieldAlert, Square, Trash2 } from "lucide-react"
 
 type ChatDonePayload = {
   content?: string
@@ -82,6 +82,13 @@ type SessionUsage = {
   hasCost: boolean
 }
 
+/** Snapshot of a failed send so the user can retry / switch model. */
+type FailedSend = {
+  text: string
+  history: ChatMessageView[]
+  modelTried: string
+}
+
 const emptySession = (): SessionUsage => ({
   turns: 0,
   promptTokens: 0,
@@ -114,6 +121,31 @@ function eventData<T>(ev: unknown): T | null {
   return ev as T
 }
 
+function isCapacityError(msg: string): boolean {
+  const m = msg.toLowerCase()
+  return (
+    m.includes("alta demanda") ||
+    m.includes("muitas requisições") ||
+    m.includes("sobrecarregado") ||
+    m.includes("indisponível") ||
+    m.includes("high demand") ||
+    m.includes("resource_exhausted") ||
+    m.includes("unavailable")
+  )
+}
+
+function stripEmptyTrailingAssistant(msgs: LocalMessage[]): LocalMessage[] {
+  const next = [...msgs]
+  while (
+    next.length > 0 &&
+    next[next.length - 1].role === "assistant" &&
+    !next[next.length - 1].content.trim()
+  ) {
+    next.pop()
+  }
+  return next
+}
+
 export function ProjectChatPanel({
   projectPath,
   visible,
@@ -125,6 +157,7 @@ export function ProjectChatPanel({
   const [draft, setDraft] = useState("")
   const [streaming, setStreaming] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [failedSend, setFailedSend] = useState<FailedSend | null>(null)
   const [toolReq, setToolReq] = useState<ChatToolRequest | null>(null)
   const [toolBusy, setToolBusy] = useState(false)
   const [sessionUsage, setSessionUsage] = useState<SessionUsage>(emptySession)
@@ -133,6 +166,7 @@ export function ProjectChatPanel({
   const assistantID = useRef<string | null>(null)
   const projectRef = useRef(projectPath)
   const decidingTool = useRef(false)
+  const pendingSend = useRef<FailedSend | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -159,15 +193,29 @@ export function ProjectChatPanel({
     setMessages([])
     setDraft("")
     setError(null)
+    setFailedSend(null)
     setStreaming(false)
     setToolReq(null)
     setSessionUsage(emptySession())
     assistantID.current = null
+    pendingSend.current = null
     void AppService.ChatCancel()
   }, [projectPath])
 
   useEffect(() => {
     if (!visible) return
+
+    const markFailed = (msg: string) => {
+      setStreaming(false)
+      setToolReq(null)
+      assistantID.current = null
+      setMessages((prev) => stripEmptyTrailingAssistant(prev))
+      setError(msg)
+      const pending = pendingSend.current
+      if (pending) {
+        setFailedSend(pending)
+      }
+    }
 
     const offChunk = Events.On("chat:chunk", (ev) => {
       const delta = String(eventData<string>(ev) ?? "")
@@ -192,6 +240,9 @@ export function ProjectChatPanel({
       setStreaming(false)
       setToolReq(null)
       assistantID.current = null
+      pendingSend.current = null
+      setFailedSend(null)
+      setError(null)
 
       const prompt = payload?.promptTokens ?? 0
       const completion = payload?.completionTokens ?? 0
@@ -223,10 +274,15 @@ export function ProjectChatPanel({
 
     const offError = Events.On("chat:error", (ev) => {
       const msg = String(eventData<string>(ev) ?? "erro no chat")
-      setStreaming(false)
-      setToolReq(null)
-      assistantID.current = null
-      setError(msg)
+      if (msg === "chat cancelado") {
+        setStreaming(false)
+        setToolReq(null)
+        assistantID.current = null
+        setMessages((prev) => stripEmptyTrailingAssistant(prev))
+        pendingSend.current = null
+        return
+      }
+      markFailed(msg)
     })
 
     return () => {
@@ -243,29 +299,46 @@ export function ProjectChatPanel({
       .map((m) => ({ role: m.role, content: m.content }))
   }, [messages])
 
-  const send = async () => {
-    const text = draft.trim()
-    if (!text || streaming) return
-    setError(null)
-    setDraft("")
-
-    const userMsg: LocalMessage = { id: newID("u"), role: "user", content: text }
+  const beginStream = async (text: string, history: ChatMessageView[], modelToUse: string) => {
     const asstID = newID("a")
     assistantID.current = asstID
-    const history = historyForAPI
-    setMessages((prev) => [
-      ...prev,
-      userMsg,
-      { id: asstID, role: "assistant", content: "" },
-    ])
+    const attempt: FailedSend = { text, history, modelTried: modelToUse }
+    pendingSend.current = attempt
+    setFailedSend(null)
+    setError(null)
+    setMessages((prev) => [...prev, { id: asstID, role: "assistant", content: "" }])
     setStreaming(true)
     try {
-      await AppService.ChatStream(text, history, model)
+      await AppService.ChatStream(text, history, modelToUse)
     } catch (e) {
       setStreaming(false)
       assistantID.current = null
-      setError(e instanceof Error ? e.message : String(e))
+      setMessages((prev) => stripEmptyTrailingAssistant(prev))
+      const msg = e instanceof Error ? e.message : String(e)
+      setError(msg)
+      setFailedSend(attempt)
+      pendingSend.current = attempt
     }
+  }
+
+  const send = async () => {
+    const text = draft.trim()
+    if (!text || streaming) return
+    setDraft("")
+
+    const userMsg: LocalMessage = { id: newID("u"), role: "user", content: text }
+    const history = historyForAPI
+    setMessages((prev) => [...prev, userMsg])
+    await beginStream(text, history, model)
+  }
+
+  const retryFailed = async (nextModel?: string) => {
+    if (!failedSend || streaming) return
+    const modelToUse = (nextModel ?? model).trim() || failedSend.modelTried
+    if (nextModel && nextModel !== model) {
+      setModel(nextModel)
+    }
+    await beginStream(failedSend.text, failedSend.history, modelToUse)
   }
 
   const cancel = () => {
@@ -273,14 +346,17 @@ export function ProjectChatPanel({
     setStreaming(false)
     setToolReq(null)
     assistantID.current = null
+    pendingSend.current = null
   }
 
   const clear = () => {
     if (streaming) cancel()
     setMessages([])
     setError(null)
+    setFailedSend(null)
     setToolReq(null)
     setSessionUsage(emptySession())
+    pendingSend.current = null
   }
 
   const approveTool = async () => {
@@ -427,7 +503,76 @@ export function ProjectChatPanel({
       </div>
 
       {error && (
-        <div className="shrink-0 border-t px-2 py-1.5 text-[11px] text-destructive">{error}</div>
+        <div className="shrink-0 space-y-1.5 border-t border-destructive/20 bg-destructive/5 px-2 py-2">
+          <p className="text-[11px] leading-snug text-destructive">{error}</p>
+          {failedSend && !streaming && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-7 gap-1 text-[11px]"
+                onClick={() => void retryFailed()}
+              >
+                <RefreshCw className="size-3" />
+                Tentar novamente
+                {failedSend.modelTried ? (
+                  <span className="font-mono text-[10px] text-muted-foreground">
+                    ({failedSend.modelTried.split("/").pop()})
+                  </span>
+                ) : null}
+              </Button>
+              {isCapacityError(error) && models.length > 1 && (
+                <Select
+                  value={model}
+                  onValueChange={(v) => {
+                    const next = String(v ?? "")
+                    if (!next || next === model) return
+                    setModel(next)
+                    void retryFailed(next)
+                  }}
+                >
+                  <SelectTrigger size="sm" className="h-7 max-w-[14rem] text-[11px]">
+                    <SelectValue placeholder="Trocar modelo e tentar" />
+                  </SelectTrigger>
+                  <SelectContent
+                    alignItemWithTrigger={false}
+                    className="max-w-[min(100vw-2rem,24rem)]"
+                  >
+                    {models.map((m) => (
+                      <SelectItem
+                        key={m}
+                        value={m}
+                        disabled={m === failedSend.modelTried}
+                        className="text-xs font-mono"
+                      >
+                        {m === failedSend.modelTried ? `${m} (falhou)` : m}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="h-7 text-[11px] text-muted-foreground"
+                onClick={() => {
+                  setError(null)
+                  setFailedSend(null)
+                  pendingSend.current = null
+                }}
+              >
+                Dispensar
+              </Button>
+            </div>
+          )}
+          {failedSend && isCapacityError(error) && models.length > 1 && !streaming && (
+            <p className="text-[10px] text-muted-foreground">
+              Modelo sobrecarregado — escolha outro na lista acima para tentar de novo.
+            </p>
+          )}
+        </div>
       )}
 
       <form

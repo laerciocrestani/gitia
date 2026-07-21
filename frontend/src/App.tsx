@@ -1221,10 +1221,23 @@ function App() {
 
   /* --------------------------- onboarding --------------------------- */
 
-  const ensureOnboarding = async (): Promise<boolean> => {
+  /** requireGitHub: push/PR need gh + remote; commit só precisa de API key. */
+  const ensureOnboarding = async (requireGitHub = false): Promise<boolean> => {
     try {
       const st = await AppService.CheckOnboarding()
-      if (st && st.needsOnboarding) {
+      if (!st) return true
+      const issues = st.issues ?? []
+      const blockers = issues.filter((iss) => {
+        if (iss.id === "api_key") return true
+        if (
+          requireGitHub &&
+          (iss.id === "gh_install" || iss.id === "gh_auth" || iss.id === "remote")
+        ) {
+          return true
+        }
+        return Boolean(iss.blocking)
+      })
+      if (blockers.length > 0) {
         setOnboarding(st)
         setObProvider(st.provider || "openai")
         setObModel(st.model || "")
@@ -1277,7 +1290,9 @@ function App() {
 
   const startCommitAction = async (action: CommitAction) => {
     if (!dash) return
-    if (!(await ensureOnboarding())) return
+    const needsGitHub =
+      action === "push" || action === "pr" || action === "branch-commit-push"
+    if (!(await ensureOnboarding(needsGitHub))) return
     setCommitAction(action)
     if (action === "branch-commit" || action === "branch-commit-push") {
       setNewBranchFrom(dash.baseBranch || "main")
@@ -1345,7 +1360,7 @@ function App() {
 
   const startPR = async () => {
     if (!dash) return
-    if (!(await ensureOnboarding())) return
+    if (!(await ensureOnboarding(true))) return
     setPrOpen(true)
     setPrPreview(null)
     setPrTitle("")

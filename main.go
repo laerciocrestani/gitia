@@ -30,6 +30,9 @@ func init() {
 }
 
 func main() {
+	// GUI apps often miss Homebrew/local bins; ensure gh/docker/git are findable.
+	desktop.AugmentUserPath()
+
 	svc := &AppService{}
 
 	app := application.New(application.Options{
