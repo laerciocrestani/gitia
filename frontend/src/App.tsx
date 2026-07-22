@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 
 import { AppService } from "../bindings/github.com/laerciocrestani/openbench"
 import type { UpdateCheckResult } from "../bindings/github.com/laerciocrestani/openbench"
@@ -69,23 +69,13 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { useTheme } from "@/components/theme-provider"
-import {
-  Sidebar,
-  SidebarContent,
-  SidebarHeader,
-  SidebarInset,
-  SidebarProvider,
-  SidebarTrigger,
-} from "@/components/ui/sidebar"
 import { DockerEnvironmentSheet } from "@/components/docker-environment-sheet"
 import { DockerGlobalPanel } from "@/components/docker-global-panel"
-import { ProjectChatPanel } from "@/components/project-chat-panel"
+import { FloatingChat } from "@/components/floating-chat"
 import {
   TerminalPanel,
   type TerminalSessionSpec,
 } from "@/components/terminal-panel"
-import { TerminalChatSplit } from "@/components/terminal-chat-split"
-import { SidebarWidthRail, useSidebarWidth } from "@/components/sidebar-width-resize"
 import { UsageChartPanel } from "@/components/usage-chart"
 import {
   BRANCH_TEMPLATES,
@@ -114,6 +104,7 @@ import {
   GitMerge,
   GitPullRequest,
   Loader2,
+  MessageSquare,
   PanelLeft,
   Pin,
   PinOff,
@@ -122,6 +113,7 @@ import {
   RefreshCw,
   Settings,
   Square,
+  Terminal,
   X,
 } from "lucide-react"
 
@@ -659,6 +651,7 @@ function DashboardView({
   commitActivity,
   activityLoading,
   activityAuthorOnly,
+  terminal,
   onSelectFile,
   onOpenBranches,
   onRecommendCommit,
@@ -683,6 +676,7 @@ function DashboardView({
   commitActivity: CommitActivityView | null
   activityLoading: boolean
   activityAuthorOnly: boolean
+  terminal: ReactNode
   onSelectFile: (f: ChangedFileView) => void
   onOpenBranches: () => void
   onRecommendCommit: () => void
@@ -1015,6 +1009,18 @@ function DashboardView({
           <ChangedFilesTable files={files} onSelect={onSelectFile} />
         </CardContent>
       </Card>
+
+      <Card className="flex h-[min(40vh,22rem)] shrink-0 flex-col overflow-hidden">
+        <CardHeader className="shrink-0 py-3">
+          <CardTitle className="flex items-center gap-2 text-sm">
+            <Terminal className="size-4 text-muted-foreground" />
+            Terminal
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="min-h-0 flex-1 overflow-hidden p-0">
+          {terminal}
+        </CardContent>
+      </Card>
     </div>
   )
 }
@@ -1271,8 +1277,8 @@ function App() {
   const [aiConfigPath, setAiConfigPath] = useState("")
   const [aiBusy, setAiBusy] = useState(false)
 
-  // Terminal sidebar — always available (home → user home dir; project → repo root)
-  const [terminalOpen, setTerminalOpen] = useState(true)
+  // Floating AI chat (MessageScroller)
+  const [chatOpen, setChatOpen] = useState(false)
   const { open: activityOpen, toggle: toggleActivity } = useActivitySidebar(true)
 
   /* --------------------------- data loaders --------------------------- */
@@ -1304,7 +1310,6 @@ function App() {
       const d = await AppService.OpenProjectDialog()
       if (d) {
         setDash(d)
-        setTerminalOpen(true)
         setTermSession({ kind: "host" })
         await refreshStatuses()
         await reloadPrefs()
@@ -1323,7 +1328,6 @@ function App() {
       const d = await AppService.OpenProject(path)
       if (d) {
         setDash(d)
-        setTerminalOpen(true)
         setTermSession({ kind: "host" })
         await refreshStatuses()
         await reloadPrefs()
@@ -1342,7 +1346,6 @@ function App() {
       const d = await AppService.SwitchProject(path)
       if (d) {
         setDash(d)
-        setTerminalOpen(true)
         setTermSession({ kind: "host" })
       }
       await refreshStatuses()
@@ -1395,6 +1398,7 @@ function App() {
     try {
       await AppService.CloseProject()
       setDash(null)
+      setChatOpen(false)
       setTermSession({ kind: "host" })
       await refreshStatuses()
       await reloadPrefs()
@@ -1850,7 +1854,6 @@ function App() {
       service,
       presetId: presetId?.trim() || undefined,
     })
-    setTerminalOpen(true)
   }
 
   /* ---------------------------- settings ---------------------------- */
@@ -2221,16 +2224,9 @@ function App() {
 
   const recent = prefs?.recent ?? []
   const dockerVisible = dash?.docker?.visible ?? false
-  const { widthPx, commitWidth, style: sidebarWidthStyle } = useSidebarWidth()
 
   return (
-    <SidebarProvider
-      open={terminalOpen}
-      onOpenChange={setTerminalOpen}
-      defaultOpen
-      className="h-svh max-h-svh min-h-0 overflow-hidden"
-      style={sidebarWidthStyle}
-    >
+    <div className="flex h-svh max-h-svh min-h-0 overflow-hidden bg-background text-foreground">
       {dash && (
         <ActivitySidebar open={activityOpen}>
           <div className="flex h-full min-h-0 flex-col border-r border-sidebar-border bg-background">
@@ -2254,7 +2250,7 @@ function App() {
         </ActivitySidebar>
       )}
 
-      <SidebarInset className="flex h-svh max-h-svh min-h-0 flex-col overflow-hidden bg-background text-foreground">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
       {/* Header (draggable) */}
       <header
         className="relative flex h-12 shrink-0 items-center border-b px-4 pl-20 [--wails-draggable:drag]"
@@ -2292,7 +2288,16 @@ function App() {
               <PanelLeft />
             </Button>
           )}
-          <SidebarTrigger title={terminalOpen ? "Fechar terminal (⌘B)" : "Abrir terminal (⌘B)"} />
+          {dash && (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => setChatOpen((v) => !v)}
+              title={chatOpen ? "Fechar chat IA" : "Abrir chat IA"}
+            >
+              <MessageSquare />
+            </Button>
+          )}
           {dash && (
             <Button
               variant="ghost"
@@ -2318,11 +2323,11 @@ function App() {
         </div>
       </header>
 
-      {/* Body — altura travada no viewport; scroll externo só se o chrome não couber */}
+      {/* Body — altura travada no viewport */}
       <div
         className={
           dash
-            ? "flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4"
+            ? "flex min-h-0 flex-1 flex-col gap-4 overflow-hidden p-4"
             : "flex min-h-0 flex-1 flex-col gap-4 overflow-hidden p-4"
         }
       >
@@ -2484,6 +2489,14 @@ function App() {
               commitActivity={commitActivity}
               activityLoading={activityLoading}
               activityAuthorOnly={activityAuthorOnly}
+              terminal={
+                <TerminalPanel
+                  projectPath={dash.path}
+                  visible
+                  session={termSession}
+                  onResetToHost={() => setTermSession({ kind: "host" })}
+                />
+              }
               onSelectFile={(f) => void openFileDiff(f)}
               onOpenBranches={() => void openBranches()}
               onRecommendCommit={() => void startCommit()}
@@ -3588,36 +3601,14 @@ function App() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      </SidebarInset>
+      </div>
 
-      <Sidebar side="right" collapsible="offcanvas" className="border-l">
-        <SidebarHeader className="flex flex-row items-center gap-2 border-b px-3 py-2">
-          <span className="text-sm font-medium">{dash ? "Terminal + Chat" : "Terminal"}</span>
-          <span className="text-[11px] text-muted-foreground">
-            {dash ? "shell · IA" : "shell"}
-          </span>
-        </SidebarHeader>
-        <SidebarContent className="overflow-hidden p-0">
-          <TerminalChatSplit
-            showChat={!!dash}
-            terminal={
-              <TerminalPanel
-                projectPath={dash?.path ?? null}
-                visible={terminalOpen}
-                session={termSession}
-                onResetToHost={() => setTermSession({ kind: "host" })}
-              />
-            }
-            chat={
-              dash ? (
-                <ProjectChatPanel projectPath={dash.path} visible={terminalOpen} />
-              ) : null
-            }
-          />
-        </SidebarContent>
-        <SidebarWidthRail widthPx={widthPx} onCommitWidth={commitWidth} />
-      </Sidebar>
-    </SidebarProvider>
+      <FloatingChat
+        projectPath={dash?.path ?? null}
+        open={chatOpen}
+        onOpenChange={setChatOpen}
+      />
+    </div>
   )
 }
 

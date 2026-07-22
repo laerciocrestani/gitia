@@ -46,6 +46,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { Bot, CircleDollarSign, Loader2, RefreshCw, Send, ShieldAlert, Square, Trash2 } from "lucide-react"
+import { cn } from "@/lib/utils"
 
 type ChatDonePayload = {
   content?: string
@@ -149,9 +150,14 @@ function stripEmptyTrailingAssistant(msgs: LocalMessage[]): LocalMessage[] {
 export function ProjectChatPanel({
   projectPath,
   visible,
+  className,
+  hideChrome = false,
 }: {
   projectPath: string
   visible: boolean
+  className?: string
+  /** When true, omit the top title bar (floating shell provides its own). */
+  hideChrome?: boolean
 }) {
   const [messages, setMessages] = useState<LocalMessage[]>([])
   const [draft, setDraft] = useState("")
@@ -390,66 +396,89 @@ export function ProjectChatPanel({
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-background">
-      <div className="flex shrink-0 items-center gap-1.5 border-b px-2 py-1.5">
-        <Bot className="size-3.5 shrink-0 text-muted-foreground" />
-        <span className="shrink-0 text-xs font-medium">Chat IA</span>
-        {sessionUsage.turns > 0 && (
-          <>
+    <div className={cn("flex h-full min-h-0 flex-col bg-background", className)}>
+      {!hideChrome ? (
+        <div className="flex shrink-0 items-center gap-1.5 border-b px-2 py-1.5">
+          <Bot className="size-3.5 shrink-0 text-muted-foreground" />
+          <span className="shrink-0 text-xs font-medium">Chat IA</span>
+          {sessionUsage.turns > 0 && (
+            <>
+              <span className="truncate text-[10px] tabular-nums text-muted-foreground">
+                {formatTokensShort(sessionUsage.totalTokens)} tok
+                {sessionUsage.hasCost ? ` · ${formatSessionCost(sessionUsage.costUSD)}` : ""}
+              </span>
+              <Tooltip>
+                <TooltipTrigger
+                  delay={200}
+                  render={
+                    <button
+                      type="button"
+                      className="inline-flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+                      aria-label="Gasto da sessão"
+                    />
+                  }
+                >
+                  <CircleDollarSign className="size-3.5" />
+                </TooltipTrigger>
+                <TooltipContent
+                  side="bottom"
+                  align="start"
+                  className="flex max-w-xs flex-col gap-1 px-3 py-2 text-left leading-snug"
+                >
+                  <p className="font-medium">Gasto da sessão</p>
+                  <p>
+                    {sessionUsage.turns} turno{sessionUsage.turns === 1 ? "" : "s"} neste chat
+                  </p>
+                  <p className="tabular-nums">
+                    {sessionUsage.promptTokens.toLocaleString("pt-BR")} input +{" "}
+                    {sessionUsage.completionTokens.toLocaleString("pt-BR")} output ={" "}
+                    {sessionUsage.totalTokens.toLocaleString("pt-BR")} tokens
+                  </p>
+                  <p className="tabular-nums">
+                    {sessionUsage.hasCost
+                      ? `${formatSessionCost(sessionUsage.costUSD)} USD`
+                      : "Custo não informado pelo provider"}
+                  </p>
+                </TooltipContent>
+              </Tooltip>
+            </>
+          )}
+          <span className="min-w-0 flex-1" />
+          <span className="truncate text-[10px] text-muted-foreground" title={projectPath}>
+            {projectPath.split(/[/\\]/).pop()}
+          </span>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            title="Limpar conversa"
+            disabled={messages.length === 0 && !streaming && sessionUsage.turns === 0}
+            onClick={clear}
+          >
+            <Trash2 />
+          </Button>
+        </div>
+      ) : (
+        <div className="flex shrink-0 items-center gap-1.5 border-b px-2 py-1">
+          {sessionUsage.turns > 0 ? (
             <span className="truncate text-[10px] tabular-nums text-muted-foreground">
               {formatTokensShort(sessionUsage.totalTokens)} tok
               {sessionUsage.hasCost ? ` · ${formatSessionCost(sessionUsage.costUSD)}` : ""}
             </span>
-            <Tooltip>
-              <TooltipTrigger
-                delay={200}
-                render={
-                  <button
-                    type="button"
-                    className="inline-flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
-                    aria-label="Gasto da sessão"
-                  />
-                }
-              >
-                <CircleDollarSign className="size-3.5" />
-              </TooltipTrigger>
-              <TooltipContent
-                side="bottom"
-                align="start"
-                className="flex max-w-xs flex-col gap-1 px-3 py-2 text-left leading-snug"
-              >
-                <p className="font-medium">Gasto da sessão</p>
-                <p>
-                  {sessionUsage.turns} turno{sessionUsage.turns === 1 ? "" : "s"} neste chat
-                </p>
-                <p className="tabular-nums">
-                  {sessionUsage.promptTokens.toLocaleString("pt-BR")} input +{" "}
-                  {sessionUsage.completionTokens.toLocaleString("pt-BR")} output ={" "}
-                  {sessionUsage.totalTokens.toLocaleString("pt-BR")} tokens
-                </p>
-                <p className="tabular-nums">
-                  {sessionUsage.hasCost
-                    ? `${formatSessionCost(sessionUsage.costUSD)} USD`
-                    : "Custo não informado pelo provider"}
-                </p>
-              </TooltipContent>
-            </Tooltip>
-          </>
-        )}
-        <span className="min-w-0 flex-1" />
-        <span className="truncate text-[10px] text-muted-foreground" title={projectPath}>
-          {projectPath.split(/[/\\]/).pop()}
-        </span>
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          title="Limpar conversa"
-          disabled={messages.length === 0 && !streaming && sessionUsage.turns === 0}
-          onClick={clear}
-        >
-          <Trash2 />
-        </Button>
-      </div>
+          ) : (
+            <span className="text-[10px] text-muted-foreground">Conversa do projeto</span>
+          )}
+          <span className="min-w-0 flex-1" />
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            title="Limpar conversa"
+            disabled={messages.length === 0 && !streaming && sessionUsage.turns === 0}
+            onClick={clear}
+          >
+            <Trash2 />
+          </Button>
+        </div>
+      )}
 
       <div className="min-h-0 flex-1">
         <MessageScrollerProvider autoScroll>
