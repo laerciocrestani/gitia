@@ -3387,40 +3387,46 @@ function App() {
           <p className="text-sm text-muted-foreground">
             Escolha o método de merge no GitHub.
           </p>
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+          <div className="flex flex-wrap gap-2">
             <Button
-              className="h-auto flex-col gap-2 bg-teal-600 py-4 text-white hover:bg-teal-700"
+              size="sm"
+              variant="outline"
+              className="border-teal-200/80 bg-teal-50 text-teal-800 hover:bg-teal-100 hover:text-teal-900 dark:border-teal-800/60 dark:bg-teal-950/40 dark:text-teal-200 dark:hover:bg-teal-950/70"
               disabled={prManageBusy}
               onClick={() => void mergePR("squash")}
             >
               {mergingMethod === "squash" ? (
-                <Loader2 className="size-5 animate-spin" />
+                <Loader2 className="animate-spin" />
               ) : (
-                <Layers className="size-5" />
+                <Layers />
               )}
               Squash
             </Button>
             <Button
-              className="h-auto flex-col gap-2 bg-violet-600 py-4 text-white hover:bg-violet-700"
+              size="sm"
+              variant="outline"
+              className="border-sky-200/80 bg-sky-50 text-sky-800 hover:bg-sky-100 hover:text-sky-900 dark:border-sky-800/60 dark:bg-sky-950/40 dark:text-sky-200 dark:hover:bg-sky-950/70"
               disabled={prManageBusy}
               onClick={() => void mergePR("merge")}
             >
               {mergingMethod === "merge" ? (
-                <Loader2 className="size-5 animate-spin" />
+                <Loader2 className="animate-spin" />
               ) : (
-                <GitMerge className="size-5" />
+                <GitMerge />
               )}
               Merge
             </Button>
             <Button
-              className="h-auto flex-col gap-2 bg-amber-600 py-4 text-white hover:bg-amber-700"
+              size="sm"
+              variant="outline"
+              className="border-amber-200/80 bg-amber-50 text-amber-900 hover:bg-amber-100 hover:text-amber-950 dark:border-amber-800/60 dark:bg-amber-950/40 dark:text-amber-200 dark:hover:bg-amber-950/70"
               disabled={prManageBusy}
               onClick={() => void mergePR("rebase")}
             >
               {mergingMethod === "rebase" ? (
-                <Loader2 className="size-5 animate-spin" />
+                <Loader2 className="animate-spin" />
               ) : (
-                <GitBranch className="size-5" />
+                <GitBranch />
               )}
               Rebase
             </Button>
