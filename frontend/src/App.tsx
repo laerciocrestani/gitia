@@ -1702,6 +1702,23 @@ function App() {
     await startCommitAction("commit")
   }
 
+  const runPushOnly = async () => {
+    if (!dash) return
+    if (!(await ensureOnboarding(true))) return
+    setBusy(true)
+    setError(null)
+    try {
+      await AppService.Push()
+      await refresh()
+    } catch (e) {
+      setError(errText(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const canPushOnly = Boolean(dash) && !dash!.detached && dash!.ahead > 0
+
   const confirmNewBranch = async () => {
     const name = newBranchName.trim()
     if (!name) return
@@ -2385,6 +2402,12 @@ function App() {
                         <DropdownMenuItem onClick={() => void startCommitAction("commit")}>
                           Commit
                         </DropdownMenuItem>
+                        {canPushOnly && (
+                          <DropdownMenuItem onClick={() => void runPushOnly()}>
+                            Push
+                            {dash.ahead > 0 ? ` (↑${dash.ahead})` : ""}
+                          </DropdownMenuItem>
+                        )}
                       </>
                     ) : (
                       <>
@@ -2394,6 +2417,13 @@ function App() {
                         </DropdownMenuItem>
                         <DropdownMenuItem onClick={() => void startCommitAction("push")}>
                           Commit & Push
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          disabled={!canPushOnly}
+                          onClick={() => void runPushOnly()}
+                        >
+                          Push
+                          {dash.ahead > 0 ? ` (↑${dash.ahead})` : ""}
                         </DropdownMenuItem>
                         <DropdownMenuItem onClick={() => void startCommitAction("pr")}>
                           Commit & Create PR

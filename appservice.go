@@ -447,6 +447,17 @@ func (s *AppService) ConfirmCommitAndPush(message string) (*desktop.CommitOutcom
 	return out, nil
 }
 
+// Push pushes existing commits on the current branch (no new commit / no AI).
+func (s *AppService) Push() (*desktop.PushOutcome, error) {
+	out, err := desktop.PushCurrentBranch(s.currentPath())
+	if err != nil {
+		return nil, err
+	}
+	s.syncHubFromPrefs()
+	s.refreshTray()
+	return out, nil
+}
+
 // CreateBranch creates and checks out a new local branch, then refreshes the dashboard.
 func (s *AppService) CreateBranch(name, from string) (*desktop.Dashboard, error) {
 	dash, err := desktop.CreateBranch(s.currentPath(), name, from)
