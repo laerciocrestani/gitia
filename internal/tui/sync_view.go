@@ -16,20 +16,21 @@ const (
 	syncScreenBase
 )
 
+// syncModel is the Hygiene options screen (key S). Kept as syncModel for TUI wiring.
 type syncModel struct {
-	snap        *app.WorkspaceSnapshot
-	cursor      int
-	modes       []components.SyncModeOption
-	base        string
-	screen      syncScreenMode
-	baseInput   textinput.Model
-	baseReady   bool
-	dirty       bool
+	snap      *app.WorkspaceSnapshot
+	cursor    int
+	modes     []components.HygieneModeOption
+	base      string
+	screen    syncScreenMode
+	baseInput textinput.Model
+	baseReady bool
+	dirty     bool
 }
 
 func newSyncModel() syncModel {
 	return syncModel{
-		modes: components.SyncModeCatalog(),
+		modes: components.HygieneModeCatalog(),
 	}
 }
 
@@ -51,20 +52,18 @@ func (m *syncModel) Load(snap *app.WorkspaceSnapshot) {
 	m.baseReady = false
 }
 
-func (m *syncModel) selectedMode() components.SyncModeOption {
+func (m *syncModel) selectedMode() components.HygieneModeOption {
 	if m.cursor < 0 || m.cursor >= len(m.modes) {
-		return components.SyncModeCatalog()[0]
+		return components.HygieneModeCatalog()[0]
 	}
 	return m.modes[m.cursor]
 }
 
-func (m *syncModel) buildSyncOptions() app.SyncOptions {
+func (m *syncModel) buildHygieneOptions() app.HygieneOptions {
 	mode := m.selectedMode()
-	prune, pruneRemote, _ := mode.ToAppOptions(m.base)
-	return app.SyncOptions{
-		Prune:       prune,
-		PruneRemote: pruneRemote,
-		Base:        m.base,
+	return app.HygieneOptions{
+		Mode: mode.Mode,
+		Base: m.base,
 	}
 }
 
@@ -110,15 +109,15 @@ func (m *syncModel) back() {
 }
 
 func (m *syncModel) canRun() bool {
-	return !m.dirty
+	return true
 }
 
 func (m syncModel) View(width int) string {
 	switch m.screen {
 	case syncScreenBase:
-		return components.RenderSyncBaseEditor(m.baseInput.View(), width)
+		return components.RenderHygieneBaseEditor(m.baseInput.View(), width)
 	default:
-		return components.RenderSyncOptionsPanel(m.cursor, m.modes, m.base, m.dirty, width)
+		return components.RenderHygieneOptionsPanel(m.cursor, m.modes, m.base, m.dirty, width)
 	}
 }
 
@@ -132,18 +131,15 @@ func (m *syncModel) Update(msg tea.Msg) (tea.Cmd, bool) {
 }
 
 func syncHelpLine(screen syncScreenMode, dirty bool) string {
+	_ = dirty
 	switch screen {
 	case syncScreenBase:
 		return styleKey.Render("Enter") + " confirm  " +
 			styleKey.Render("esc") + " back"
 	default:
-		run := styleKey.Render("Enter") + " run"
-		if dirty {
-			run = styleHint.Render("Enter (dirty working tree)")
-		}
 		return styleKey.Render("↑↓") + " option  " +
 			styleKey.Render("b") + " base  " +
-			run + "  " +
+			styleKey.Render("Enter") + " run  " +
 			styleKey.Render("esc") + " back"
 	}
 }

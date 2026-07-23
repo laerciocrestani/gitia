@@ -21,6 +21,8 @@ var (
 	verbose             bool
 	pruneBranches       bool
 	pruneRemoteBranches bool
+	hygieneFull         bool
+	hygieneLocal        bool
 	reportHour          bool
 	reportHours         int
 	reportDays          int
@@ -134,13 +136,27 @@ func main() {
 
 	syncCmd := &cobra.Command{
 		Use:   "sync",
-		Short: "Sincroniza com origin (pull da branch base)",
-		Long:  "Atualiza a branch base com fetch + pull. --prune remove branches mergeadas/absorvidas (remoto primeiro, depois local). --prune-remote só no GitHub.",
+		Short: "Sincroniza a branch base com origin",
+		Long:  "Atualiza refs remotas (fetch --prune) e faz fast-forward da branch base. Para limpar branches mergeadas, use `ob hygiene`.",
 		RunE:  runSync,
 	}
-	syncCmd.Flags().BoolVar(&pruneBranches, "prune", false, "remove branches mergeadas no local e no GitHub")
-	syncCmd.Flags().BoolVar(&pruneRemoteBranches, "prune-remote", false, "remove branches mergeadas só no GitHub")
 	syncCmd.Flags().StringVar(&base, "base", "", "branch base (default: config base_branch)")
+	// Deprecated flags — kept for clear migration errors.
+	syncCmd.Flags().BoolVar(&pruneBranches, "prune", false, "deprecated: use `ob hygiene --full`")
+	syncCmd.Flags().BoolVar(&pruneRemoteBranches, "prune-remote", false, "deprecated: use `ob hygiene --full` ou `--local`")
+	_ = syncCmd.Flags().MarkDeprecated("prune", "use `ob hygiene --full`")
+	_ = syncCmd.Flags().MarkDeprecated("prune-remote", "use `ob hygiene --full` ou `--local`")
+
+	hygieneCmd := &cobra.Command{
+		Use:   "hygiene",
+		Short: "Limpa branches mergeadas/absorvidas (local e/ou remoto)",
+		Long:  "Fetch das refs e prune de branches já mergeadas/absorvidas. Use --full (local+remoto) ou --local (só local).",
+		RunE:  runHygiene,
+	}
+	hygieneCmd.Flags().BoolVar(&hygieneFull, "full", false, "remove branches mergeadas no local e no GitHub")
+	hygieneCmd.Flags().BoolVar(&hygieneLocal, "local", false, "remove branches mergeadas só no local (mantém remoto)")
+	hygieneCmd.Flags().StringVar(&base, "base", "", "branch base (default: config base_branch)")
+	hygieneCmd.MarkFlagsMutuallyExclusive("full", "local")
 
 	versionCmd := &cobra.Command{
 		Use:   "version",
@@ -423,7 +439,7 @@ func main() {
 	dockerCmd.PersistentFlags().StringVarP(&dockerComposeFile, "file", "f", "", "caminho do compose file")
 	dockerCmd.AddCommand(dockerStatusCmd, dockerPSCmd, dockerUpCmd, dockerDownCmd, dockerStopCmd, dockerStartCmd, dockerRecreateCmd, dockerExecCmd, dockerLogsCmd, dockerShCmd, dockerPresetCmd, dockerKitCmd)
 
-	root.AddCommand(installCmd, updateCmd, syncCmd, versionCmd, statusCmd, commitCmd, pushCmd, prCmd, configCmd, pricingCmd, reportCmd, uiCmd, doctorCmd, dockerCmd)
+	root.AddCommand(installCmd, updateCmd, syncCmd, hygieneCmd, versionCmd, statusCmd, commitCmd, pushCmd, prCmd, configCmd, pricingCmd, reportCmd, uiCmd, doctorCmd, dockerCmd)
 
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
@@ -477,11 +493,29 @@ func runPR(cmd *cobra.Command, args []string) error {
 }
 
 func runSync(cmd *cobra.Command, args []string) error {
+	if pruneBranches || pruneRemoteBranches {
+		return fmt.Errorf("sync não faz mais prune — use `ob hygiene --full` ou `ob hygiene --local`")
+	}
 	return app.RunSync(app.SyncOptions{
-		Prune:       pruneBranches,
-		PruneRemote: pruneRemoteBranches,
-		Base:        base,
-		DryRun:      dryRun,
+		Base:   base,
+		DryRun: dryRun,
+	})
+}
+
+func runHygiene(cmd *cobra.Command, args []string) error {
+	mode := app.HygieneModeFull
+	switch {
+	case hygieneLocal:
+		mode = app.HygieneModeLocal
+	case hygieneFull:
+		mode = app.HygieneModeFull
+	default:
+		return fmt.Errorf("informe --full (local+remoto) ou --local (só local)")
+	}
+	return app.RunHygiene(app.HygieneOptions{
+		Mode:   mode,
+		Base:   base,
+		DryRun: dryRun,
 	})
 }
 

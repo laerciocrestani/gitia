@@ -35,6 +35,11 @@ func CanSync(snap *WorkspaceSnapshot) bool {
 	return !snap.Overview.IsDirty()
 }
 
+// CanHygiene reports whether branch cleanup can run (works with a dirty tree).
+func CanHygiene(snap *WorkspaceSnapshot) bool {
+	return snap != nil && snap.Overview != nil && !snap.Overview.Detached
+}
+
 // BuildHeaderContext builds dashboard header data from a workspace snapshot.
 func BuildHeaderContext(snap *WorkspaceSnapshot) ui.HeaderContext {
 	ctx := ui.HeaderContext{}

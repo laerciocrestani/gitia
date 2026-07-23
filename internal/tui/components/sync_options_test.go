@@ -4,45 +4,28 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/laerciocrestani/openbench/internal/app"
 	"github.com/laerciocrestani/openbench/internal/tui/components"
 )
 
-func TestSyncModeCatalog(t *testing.T) {
+func TestHygieneModeCatalog(t *testing.T) {
 	t.Parallel()
-	modes := components.SyncModeCatalog()
-	if len(modes) != 3 {
-		t.Fatalf("expected 3 modes, got %d", len(modes))
+	modes := components.HygieneModeCatalog()
+	if len(modes) != 2 {
+		t.Fatalf("expected 2 modes, got %d", len(modes))
 	}
-	if modes[0].Mode != components.SyncModeStandard {
-		t.Fatalf("first mode should be standard")
+	if modes[0].Mode != app.HygieneModeFull {
+		t.Fatalf("first mode should be full")
 	}
-	if modes[1].Flag != "--prune-remote" {
+	if modes[1].Flag != "--local" {
 		t.Fatalf("second flag = %q", modes[1].Flag)
 	}
-	if modes[2].Flag != "--prune" {
-		t.Fatalf("third flag = %q", modes[2].Flag)
-	}
 }
 
-func TestSyncModeToAppOptions(t *testing.T) {
-	t.Parallel()
-	full := components.SyncModeCatalog()[2]
-	prune, pruneRemote, base := full.ToAppOptions("main")
-	if !prune || !pruneRemote || base != "main" {
-		t.Fatalf("prune=%v pruneRemote=%v base=%q", prune, pruneRemote, base)
-	}
-
-	remote := components.SyncModeCatalog()[1]
-	prune, pruneRemote, _ = remote.ToAppOptions("develop")
-	if prune || !pruneRemote {
-		t.Fatalf("prune-remote: prune=%v pruneRemote=%v", prune, pruneRemote)
-	}
-}
-
-func TestRenderSyncOptionsPanel(t *testing.T) {
-	modes := components.SyncModeCatalog()
-	out := components.RenderSyncOptionsPanel(0, modes, "main", false, 90)
-	for _, want := range []string{"Sync · Options", "Standard sync", "Base: main", "git fetch origin --prune", "--prune-remote", "--prune"} {
+func TestRenderHygieneOptionsPanel(t *testing.T) {
+	modes := components.HygieneModeCatalog()
+	out := components.RenderHygieneOptionsPanel(0, modes, "main", false, 90)
+	for _, want := range []string{"Hygiene · Options", "Full hygiene", "Base: main", "git fetch origin --prune", "--full", "--local"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("missing %q in:\n%s", want, out)
 		}

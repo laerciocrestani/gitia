@@ -359,14 +359,33 @@ func (s *AppService) FileDiff(path string) (*desktop.FileDiffView, error) {
 	return desktop.LoadFileDiff(s.currentPath(), path)
 }
 
-// SyncModes returns sync presets for the desktop dialog.
-func (s *AppService) SyncModes() []desktop.SyncModeView {
-	return desktop.SyncModes()
+// SyncModes is deprecated; use HygieneActions.
+func (s *AppService) SyncModes() []desktop.HygieneActionView {
+	return desktop.HygieneActions()
 }
 
-// RunSync synchronizes the base branch (and optionally prunes) for the open project.
-func (s *AppService) RunSync(mode, base string) (*desktop.SyncResult, error) {
-	res, err := desktop.RunSync(s.currentPath(), mode, base)
+// HygieneActions returns hygiene action buttons for the desktop dialog.
+func (s *AppService) HygieneActions() []desktop.HygieneActionView {
+	return desktop.HygieneActions()
+}
+
+// RunSync synchronizes the base branch for the open project (no prune).
+func (s *AppService) RunSync(base string) (*desktop.SyncResult, error) {
+	res, err := desktop.RunSync(s.currentPath(), base)
+	if err != nil {
+		return nil, err
+	}
+	if res != nil && res.Dashboard != nil {
+		s.setProjectPath(res.Dashboard.Path)
+	}
+	s.syncHubFromPrefs()
+	s.refreshTray()
+	return res, nil
+}
+
+// RunHygiene cleans merged/absorbed branches (mode: full|local).
+func (s *AppService) RunHygiene(mode, base string) (*desktop.HygieneResult, error) {
+	res, err := desktop.RunHygiene(s.currentPath(), mode, base)
 	if err != nil {
 		return nil, err
 	}

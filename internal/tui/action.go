@@ -20,6 +20,7 @@ const (
 	ActionPush
 	ActionPR
 	ActionSync
+	ActionHygiene
 	ActionOpenPR
 )
 
@@ -43,6 +44,7 @@ type actionState struct {
 	draft        bool
 	opts         app.Options
 	syncOpts     app.SyncOptions
+	hygieneOpts  app.HygieneOptions
 	editing      bool
 	editFocus    editFocus
 	editorsReady bool
@@ -75,6 +77,11 @@ func newActionState(kind ActionKind) *actionState {
 
 func newSyncActionState(opts app.SyncOptions) *actionState {
 	a := &actionState{kind: ActionSync, syncOpts: opts}
+	return a.start()
+}
+
+func newHygieneActionState(opts app.HygieneOptions) *actionState {
+	a := &actionState{kind: ActionHygiene, hygieneOpts: opts}
 	return a.start()
 }
 
@@ -144,6 +151,11 @@ func (a *actionState) directCmd() tea.Cmd {
 			opts.Progress = a.progress
 			err := app.RunSync(opts)
 			return actionSimpleMsg{kind: a.kind, err: err}
+		case ActionHygiene:
+			opts := a.hygieneOpts
+			opts.Progress = a.progress
+			err := app.RunHygiene(opts)
+			return actionSimpleMsg{kind: a.kind, err: err}
 		case ActionOpenPR:
 			client, err := prpkg.New()
 			if err != nil {
@@ -201,6 +213,8 @@ func (a *actionState) title() string {
 		return "Pull Request"
 	case ActionSync:
 		return "Sync"
+	case ActionHygiene:
+		return "Hygiene"
 	case ActionOpenPR:
 		return "Open PR"
 	default:

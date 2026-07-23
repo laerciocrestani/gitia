@@ -541,7 +541,7 @@ func (m appModel) updateDashboard(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.action.directCmd()
 		case dashKeySyncOptions:
 			m.screen = ScreenSync
-			m.status = "Sync · options"
+			m.status = "Hygiene · options"
 			m.sync.Load(m.snapshot)
 			return m, nil
 		case dashKeyOpenPR:
@@ -678,10 +678,10 @@ func (m appModel) updateSync(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if !m.sync.canRun() {
 			return m, nil
 		}
-		opts := m.sync.buildSyncOptions()
+		opts := m.sync.buildHygieneOptions()
 		m.screen = ScreenAction
-		m.action = newSyncActionState(opts)
-		m.status = "Sync"
+		m.action = newHygieneActionState(opts)
+		m.status = "Hygiene"
 		return m, m.action.directCmd()
 	}
 	var cmd tea.Cmd

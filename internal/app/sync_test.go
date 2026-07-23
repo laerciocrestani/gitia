@@ -23,7 +23,7 @@ func (r *recordedProgress) Info(msg string)                 { r.Detail(msg) }
 func (r *recordedProgress) Warn(msg string)                 { r.Detail(msg) }
 func (r *recordedProgress) Success(msg string)              { r.steps = append(r.steps, "success:"+msg) }
 
-func TestPrunePhaseOrder_remoteBeforeLocal(t *testing.T) {
+func TestHygienePhaseOrder_remoteBeforeLocal(t *testing.T) {
 	rec := &recordedProgress{}
 	repo, err := gitpkg.New()
 	if err != nil {
@@ -40,15 +40,14 @@ func TestPrunePhaseOrder_remoteBeforeLocal(t *testing.T) {
 		t.Skip("dirty working tree")
 	}
 
-	// Dry-run exercises the full prune path without mutating branches.
-	err = RunSync(SyncOptions{
-		Prune:    true,
+	err = RunHygiene(HygieneOptions{
+		Mode:     HygieneModeFull,
 		Base:     "main",
 		DryRun:   true,
 		Progress: rec,
 	})
 	if err != nil {
-		t.Fatalf("RunSync: %v", err)
+		t.Fatalf("RunHygiene: %v", err)
 	}
 
 	joined := strings.Join(rec.steps, "|")
@@ -64,5 +63,69 @@ func TestPrunePhaseOrder_remoteBeforeLocal(t *testing.T) {
 	}
 	if refreshIdx >= 0 && localIdx >= 0 && localIdx < refreshIdx {
 		t.Fatalf("expected local prune after refresh: %v", rec.steps)
+	}
+}
+
+func TestHygieneLocalOnly_skipsRemote(t *testing.T) {
+	rec := &recordedProgress{}
+	repo, err := gitpkg.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.IsRepo(); err != nil {
+		t.Skip("not a git repo")
+	}
+	clean, err := repo.IsClean()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !clean {
+		t.Skip("dirty working tree")
+	}
+
+	err = RunHygiene(HygieneOptions{
+		Mode:     HygieneModeLocal,
+		Base:     "main",
+		DryRun:   true,
+		Progress: rec,
+	})
+	if err != nil {
+		t.Fatalf("RunHygiene: %v", err)
+	}
+
+	joined := strings.Join(rec.steps, "|")
+	if strings.Contains(joined, "Removing remote ") {
+		t.Fatalf("local mode must not remove remotes: %v", rec.steps)
+	}
+}
+
+func TestRunSync_noPrune(t *testing.T) {
+	rec := &recordedProgress{}
+	repo, err := gitpkg.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.IsRepo(); err != nil {
+		t.Skip("not a git repo")
+	}
+	clean, err := repo.IsClean()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !clean {
+		t.Skip("dirty working tree")
+	}
+
+	err = RunSync(SyncOptions{
+		Base:     "main",
+		DryRun:   true,
+		Progress: rec,
+	})
+	if err != nil {
+		t.Fatalf("RunSync: %v", err)
+	}
+	joined := strings.Join(rec.steps, "|")
+	if strings.Contains(joined, "Finding branches to prune") || strings.Contains(joined, "Removing ") {
+		t.Fatalf("sync must not prune: %v", rec.steps)
 	}
 }

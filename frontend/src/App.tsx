@@ -13,11 +13,11 @@ import type {
   DoctorFixStepView,
   DoctorView,
   FileDiffView,
+  HygieneResult,
   OnboardingStatus,
   Prefs,
   ProjectStatus,
   PRPreview,
-  SyncModeView,
   SyncResult,
   TimelineView,
 } from "../bindings/github.com/laerciocrestani/openbench/internal/desktop"
@@ -122,6 +122,7 @@ import {
   Settings,
   Square,
   Stethoscope,
+  Trash2,
   Terminal,
   X,
 } from "lucide-react"
@@ -646,8 +647,33 @@ function openPRDisabledReason(dash: Dashboard): string | undefined {
   return undefined
 }
 
+/** Why "Pull Request" toolbar action is unavailable (create/review flow). */
+function createPRDisabledReason(dash: Dashboard): string | undefined {
+  if (dash.detached) return "HEAD detached — faça checkout de uma branch"
+  if (isOnBase(dash)) return `Você está em ${dash.baseBranch || "main"} — use uma feature branch`
+  if (dash.dirty) return "Há alterações locais — faça commit antes de abrir PR"
+  if (dash.commitsAheadOfBase <= 0) return "Sem commits à frente da base para abrir PR"
+  if (!dash.hasBranchDiff) return "Diff vazio em relação à base"
+  return undefined
+}
+
 function pullNeedsAttention(dash: Dashboard): boolean {
-  return dash.behind > 0 || dash.baseBehind > 0
+  return dash.behind > 0
+}
+
+function syncNeedsAttention(dash: Dashboard): boolean {
+  return dash.baseBehind > 0
+}
+
+function hygieneNeedsAttention(dash: Dashboard): boolean {
+  return (dash.hygieneLocal ?? 0) + (dash.hygieneRemote ?? 0) > 0
+}
+
+/** Badge text: local·remote (e.g. "3·3"), omitting a side only when both would be empty. */
+function hygieneBadgeLabel(dash: Dashboard): string {
+  const local = dash.hygieneLocal ?? 0
+  const remote = dash.hygieneRemote ?? 0
+  return `${local}·${remote}`
 }
 
 type NextToolbarStep = "commit" | "push" | "pull" | "pr" | "merge" | null
@@ -1246,12 +1272,14 @@ function App() {
   const [dockerEnvOpen, setDockerEnvOpen] = useState(false)
   const [termSession, setTermSession] = useState<TerminalSessionSpec>({ kind: "host" })
 
-  // Sync dialog
-  const [syncOpen, setSyncOpen] = useState(false)
-  const [syncModes, setSyncModes] = useState<SyncModeView[]>([])
-  const [syncMode, setSyncMode] = useState("standard")
+  // Sync / Hygiene
   const [syncBusy, setSyncBusy] = useState(false)
   const [syncResult, setSyncResult] = useState<SyncResult | null>(null)
+  const [syncOpen, setSyncOpen] = useState(false)
+  const [hygieneOpen, setHygieneOpen] = useState(false)
+  const [hygieneBusy, setHygieneBusy] = useState(false)
+  const [hygieneResult, setHygieneResult] = useState<HygieneResult | null>(null)
+  const [hygieneMode, setHygieneMode] = useState<string | null>(null)
 
   // Pull (one-click)
   const [pullBusy, setPullBusy] = useState(false)
@@ -1583,21 +1611,6 @@ function App() {
     }
   }
 
-  const openSync = async () => {
-    setError(null)
-    setSyncResult(null)
-    setSyncMode("standard")
-    try {
-      const modes = await AppService.SyncModes()
-      setSyncModes(modes ?? [])
-      if (modes && modes.length > 0) setSyncMode(modes[0].id)
-    } catch (e) {
-      setError(errText(e))
-      return
-    }
-    setSyncOpen(true)
-  }
-
   const runDoctor = async (explain = false, opts?: { quiet?: boolean }) => {
     if (!dash) return
     const quiet = !!opts?.quiet
@@ -1752,9 +1765,10 @@ function App() {
     setError(null)
     setSyncResult(null)
     try {
-      const res = await AppService.RunSync(syncMode, dash.baseBranch || "main")
+      const res = await AppService.RunSync(dash.baseBranch || "main")
       if (res) {
         setSyncResult(res)
+        setSyncOpen(true)
         if (res.dashboard) applyDashboard(res.dashboard)
         await refreshStatuses()
       }
@@ -1762,6 +1776,33 @@ function App() {
       setError(errText(e))
     } finally {
       setSyncBusy(false)
+    }
+  }
+
+  const openHygiene = () => {
+    setHygieneResult(null)
+    setHygieneMode(null)
+    setHygieneOpen(true)
+  }
+
+  const runHygiene = async (mode: string) => {
+    if (!dash) return
+    setHygieneBusy(true)
+    setHygieneMode(mode)
+    setError(null)
+    setHygieneResult(null)
+    try {
+      const res = await AppService.RunHygiene(mode, dash.baseBranch || "main")
+      if (res) {
+        setHygieneResult(res)
+        if (res.dashboard) applyDashboard(res.dashboard)
+        await refreshStatuses()
+      }
+    } catch (e) {
+      setError(errText(e))
+    } finally {
+      setHygieneBusy(false)
+      setHygieneMode(null)
     }
   }
 
@@ -1821,11 +1862,6 @@ function App() {
     if (!q) return branches
     return branches.filter((b) => b.name.toLowerCase().includes(q))
   }, [branches, branchFilter])
-
-  const selectedSyncMode = useMemo(
-    () => syncModes.find((m) => m.id === syncMode) ?? null,
-    [syncModes, syncMode],
-  )
 
   /* --------------------------- onboarding --------------------------- */
 
@@ -2723,7 +2759,7 @@ function App() {
                 size="sm"
                 variant="outline"
                 onClick={() => void runPull()}
-                disabled={busy || pullBusy || syncBusy || dash.dirty}
+                disabled={busy || pullBusy || syncBusy || hygieneBusy || dash.dirty}
                 className={cn(suggestedStep === "pull" && "next-step-pulse")}
                 title={
                   suggestedStep === "pull"
@@ -2731,15 +2767,15 @@ function App() {
                     : dash.dirty
                       ? "Working tree dirty — commit ou stash antes de puxar"
                       : pullNeedsAttention(dash)
-                        ? `Pull: branch ↓${dash.behind || 0} · ${dash.baseBranch || "main"} ↓${dash.baseBehind || 0}`
-                        : `Fetch + atualizar branch / ${dash.baseBranch || "main"}`
+                        ? `Pull: branch ↓${dash.behind || 0}`
+                        : `Fetch + atualizar branch`
                 }
               >
                 {pullBusy ? <Loader2 className="animate-spin" /> : <ArrowDown />}
                 Pull
                 {pullNeedsAttention(dash) && (
                   <Badge variant="secondary" className="ml-1 h-5 px-1.5 text-[10px]">
-                    {dash.behind + dash.baseBehind}
+                    {dash.behind}
                   </Badge>
                 )}
               </Button>
@@ -2797,14 +2833,15 @@ function App() {
                 size="sm"
                 variant="secondary"
                 onClick={() => void startPR()}
-                disabled={busy}
+                disabled={busy || Boolean(createPRDisabledReason(dash))}
                 className={cn(suggestedStep === "pr" && "next-step-pulse")}
                 title={
                   suggestedStep === "pr"
                     ? nextStepTitle("pr")
-                    : dash.openPR?.url
-                      ? `PR #${dash.openPR.number} já aberta`
-                      : "Criar ou revisar Pull Request"
+                    : (createPRDisabledReason(dash) ??
+                      (dash.openPR?.url
+                        ? `PR #${dash.openPR.number} já aberta`
+                        : "Criar ou revisar Pull Request"))
                 }
               >
                 <GitPullRequest />
@@ -2838,16 +2875,44 @@ function App() {
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => void openSync()}
-                disabled={busy || syncBusy || pullBusy || dash.dirty}
+                onClick={() => void runSync()}
+                disabled={busy || syncBusy || pullBusy || hygieneBusy || dash.dirty}
+                className={cn(syncNeedsAttention(dash) && "next-step-pulse")}
                 title={
                   dash.dirty
                     ? "Working tree dirty — commit ou stash antes de sincronizar"
-                    : `Sincronizar ${dash.baseBranch || "main"}`
+                    : syncNeedsAttention(dash)
+                      ? `Sync: ${dash.baseBranch || "main"} ↓${dash.baseBehind} no remoto`
+                      : `Sincronizar ${dash.baseBranch || "main"} com origin`
                 }
               >
-                <ArrowDownUp />
+                {syncBusy ? <Loader2 className="animate-spin" /> : <ArrowDownUp />}
                 Sync
+                {syncNeedsAttention(dash) && (
+                  <Badge variant="secondary" className="ml-1 h-5 px-1.5 text-[10px]">
+                    ↓{dash.baseBehind}
+                  </Badge>
+                )}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => openHygiene()}
+                disabled={busy || syncBusy || pullBusy || hygieneBusy}
+                className={cn(hygieneNeedsAttention(dash) && "next-step-pulse")}
+                title={
+                  hygieneNeedsAttention(dash)
+                    ? `Hygiene: ${dash.hygieneLocal || 0} local · ${dash.hygieneRemote || 0} remoto`
+                    : "Limpar branches mergeadas"
+                }
+              >
+                {hygieneBusy ? <Loader2 className="animate-spin" /> : <Trash2 />}
+                Hygiene
+                {hygieneNeedsAttention(dash) && (
+                  <Badge variant="secondary" className="ml-1 h-5 px-1.5 text-[10px]">
+                    {hygieneBadgeLabel(dash)}
+                  </Badge>
+                )}
               </Button>
             </div>
 
@@ -3207,7 +3272,7 @@ function App() {
         </DialogContent>
       </Dialog>
 
-      {/* Sync dialog */}
+      {/* Sync result dialog */}
       <Dialog
         open={syncOpen}
         onOpenChange={(open) => {
@@ -3222,14 +3287,7 @@ function App() {
               Sync · {dash?.baseBranch || "main"}
             </DialogTitle>
           </DialogHeader>
-
-          {dash?.dirty ? (
-            <Alert variant="destructive">
-              <AlertDescription>
-                Working tree dirty — commit ou stash antes de sincronizar.
-              </AlertDescription>
-            </Alert>
-          ) : syncResult ? (
+          {syncResult ? (
             <div className="flex flex-col gap-3">
               <Alert>
                 <AlertDescription>{syncResult.message}</AlertDescription>
@@ -3245,51 +3303,104 @@ function App() {
               )}
             </div>
           ) : (
+            <p className="text-sm text-muted-foreground">Sincronizando…</p>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSyncOpen(false)} disabled={syncBusy}>
+              Fechar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Hygiene dialog */}
+      <Dialog
+        open={hygieneOpen}
+        onOpenChange={(open) => {
+          setHygieneOpen(open)
+          if (!open) {
+            setHygieneResult(null)
+            setHygieneMode(null)
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Trash2 className="size-4" />
+              Hygiene
+              {dash && hygieneNeedsAttention(dash) ? (
+                <Badge variant="outline" className="font-normal">
+                  {hygieneBadgeLabel(dash)}
+                </Badge>
+              ) : null}
+            </DialogTitle>
+          </DialogHeader>
+
+          {hygieneResult ? (
             <div className="flex flex-col gap-3">
-              <p className="text-sm text-muted-foreground">
-                Escolha o modo. A base{" "}
-                <span className="font-mono text-foreground">{dash?.baseBranch || "main"}</span> será
-                atualizada com origin (fast-forward).
-              </p>
-              <div className="flex flex-col gap-2">
-                {syncModes.map((m) => (
-                  <button
-                    key={m.id}
-                    type="button"
-                    disabled={syncBusy}
-                    onClick={() => setSyncMode(m.id)}
-                    className="rounded-lg border px-3 py-2.5 text-left transition-colors hover:bg-muted/50 data-[active=true]:border-primary/50 data-[active=true]:bg-primary/5"
-                    data-active={syncMode === m.id ? "true" : undefined}
-                  >
-                    <div className="text-sm font-medium">{m.label}</div>
-                    <div className="mt-0.5 text-xs text-muted-foreground">{m.summary}</div>
-                  </button>
-                ))}
-              </div>
-              {selectedSyncMode && (
-                <p className="text-xs text-muted-foreground">{selectedSyncMode.description}</p>
+              <Alert>
+                <AlertDescription>{hygieneResult.message}</AlertDescription>
+              </Alert>
+              {hygieneResult.logs && hygieneResult.logs.length > 0 && (
+                <ScrollArea className="max-h-48 rounded-md border">
+                  <div className="space-y-1 p-3 font-mono text-xs text-muted-foreground">
+                    {hygieneResult.logs.map((line, i) => (
+                      <div key={`${i}-${line}`}>{line}</div>
+                    ))}
+                  </div>
+                </ScrollArea>
               )}
             </div>
+          ) : (
+            <>
+              <p className="text-sm text-muted-foreground">
+                Escolha como limpar branches já mergeadas/absorvidas em{" "}
+                <span className="font-mono text-foreground">{dash?.baseBranch || "main"}</span>.
+                Working tree dirty não impede a limpeza.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="border-teal-200/80 bg-teal-50 text-teal-800 hover:bg-teal-100 hover:text-teal-900 dark:border-teal-800/60 dark:bg-teal-950/40 dark:text-teal-200 dark:hover:bg-teal-950/70"
+                  disabled={hygieneBusy}
+                  onClick={() => void runHygiene("full")}
+                >
+                  {hygieneMode === "full" ? (
+                    <Loader2 className="animate-spin" />
+                  ) : (
+                    <Trash2 />
+                  )}
+                  Limpar local + remoto
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="border-sky-200/80 bg-sky-50 text-sky-800 hover:bg-sky-100 hover:text-sky-900 dark:border-sky-800/60 dark:bg-sky-950/40 dark:text-sky-200 dark:hover:bg-sky-950/70"
+                  disabled={hygieneBusy}
+                  onClick={() => void runHygiene("local")}
+                >
+                  {hygieneMode === "local" ? (
+                    <Loader2 className="animate-spin" />
+                  ) : (
+                    <GitBranch />
+                  )}
+                  Apagar só local
+                </Button>
+              </div>
+            </>
           )}
 
-          {syncResult ? null : (
-            <DialogFooter>
-              <Button
-                variant="outline"
-                onClick={() => setSyncOpen(false)}
-                disabled={syncBusy}
-              >
-                Cancelar
-              </Button>
-              <Button
-                onClick={() => void runSync()}
-                disabled={syncBusy || !!dash?.dirty || !syncMode}
-              >
-                {syncBusy ? <Loader2 className="animate-spin" /> : <ArrowDownUp />}
-                Executar sync
-              </Button>
-            </DialogFooter>
-          )}
+          <DialogFooter>
+            <Button
+              variant="outline"
+              disabled={hygieneBusy}
+              onClick={() => setHygieneOpen(false)}
+            >
+              {hygieneResult ? "Fechar" : "Não fazer nada"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

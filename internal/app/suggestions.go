@@ -52,7 +52,7 @@ func buildNextSteps(o *gitpkg.Overview, pr *prpkg.PRView, docker *dockerpkg.Over
 	if len(o.Stashes) > 0 {
 		steps = append(steps, NextStep{Command: "git stash pop"})
 	}
-	if o.Behind > 0 {
+	if o.Behind > 0 || o.BaseBehind > 0 {
 		steps = append(steps, NextStep{Command: "ob sync"})
 	}
 

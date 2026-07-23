@@ -71,11 +71,12 @@ func parseDashboardKey(msg tea.KeyMsg, snap *app.WorkspaceSnapshot) (dashKey, bo
 			return dashKeyAdd, true
 		}
 	case "s":
-		if snap != nil && snap.Overview != nil && snap.Overview.Behind > 0 && app.CanSync(snap) {
+		if snap != nil && snap.Overview != nil && app.CanSync(snap) &&
+			(snap.Overview.Behind > 0 || snap.Overview.BaseBehind > 0) {
 			return dashKeySync, true
 		}
 	case "S", "shift+s":
-		if app.CanSync(snap) {
+		if app.CanHygiene(snap) {
 			return dashKeySyncOptions, true
 		}
 	case "o":

@@ -7,76 +7,59 @@ import (
 	"github.com/laerciocrestani/openbench/internal/app"
 )
 
-// Sync mode identifiers exposed to the frontend.
-const (
-	SyncModeStandard    = "standard"
-	SyncModePruneRemote = "prune_remote"
-	SyncModePruneFull   = "prune_full"
-)
-
-// SyncModeView describes one sync preset for the UI picker.
-type SyncModeView struct {
-	ID          string `json:"id"`
-	Label       string `json:"label"`
-	Summary     string `json:"summary"`
-	Description string `json:"description"`
-}
-
 // SyncResult is returned after a successful sync.
 type SyncResult struct {
+	Message   string     `json:"message"`
+	Logs      []string   `json:"logs"`
+	Dashboard *Dashboard `json:"dashboard"`
+}
+
+// HygieneResult is returned after a successful hygiene run.
+type HygieneResult struct {
 	Mode      string     `json:"mode"`
 	Message   string     `json:"message"`
 	Logs      []string   `json:"logs"`
 	Dashboard *Dashboard `json:"dashboard"`
 }
 
-// SyncModes returns the catalog of sync presets for the desktop dialog.
-func SyncModes() []SyncModeView {
-	return []SyncModeView{
+// HygieneActionView describes one hygiene action button for the UI.
+type HygieneActionView struct {
+	ID          string `json:"id"`
+	Label       string `json:"label"`
+	Summary     string `json:"summary"`
+	Description string `json:"description"`
+}
+
+// HygieneActions returns the catalog of hygiene actions for the desktop dialog.
+func HygieneActions() []HygieneActionView {
+	return []HygieneActionView{
 		{
-			ID:          SyncModeStandard,
-			Label:       "Só sincronizar base",
-			Summary:     "Fetch + pull da base",
-			Description: "Atualiza refs remotas (fetch --prune) e faz fast-forward da branch base com origin. Não remove branches.",
+			ID:          app.HygieneModeFull,
+			Label:       "Limpar local + remoto",
+			Summary:     "Remove branches merged/absorbed no local e no GitHub",
+			Description: "Fetch refs, apaga no GitHub e depois remove branches locais merged/absorbed/gone.",
 		},
 		{
-			ID:          SyncModePruneRemote,
-			Label:       "Sync + limpar no GitHub",
-			Summary:     "Remove branches merged/absorbed no remoto",
-			Description: "Sync da base, depois apaga no GitHub branches já merged/absorbed. Mantém branches locais.",
-		},
-		{
-			ID:          SyncModePruneFull,
-			Label:       "Sync + limpar local e GitHub",
-			Summary:     "Remove branches merged local e remoto",
-			Description: "Sync da base, apaga no GitHub e depois remove branches locais merged/absorbed/gone.",
+			ID:          app.HygieneModeLocal,
+			Label:       "Apagar só local",
+			Summary:     "Mantém branches no GitHub",
+			Description: "Fetch refs e remove apenas branches locais merged/absorbed/gone. Não apaga no remoto.",
 		},
 	}
 }
 
-// RunSync executes sync for projectPath with the given mode and optional base.
-func RunSync(projectPath, mode, base string) (*SyncResult, error) {
+// RunSync fetches origin and fast-forwards the local base (no prune).
+func RunSync(projectPath, base string) (*SyncResult, error) {
 	if strings.TrimSpace(projectPath) == "" {
 		return nil, fmt.Errorf("no project open")
-	}
-	mode = strings.TrimSpace(mode)
-	if mode == "" {
-		mode = SyncModeStandard
-	}
-
-	prune, pruneRemote, err := syncFlags(mode)
-	if err != nil {
-		return nil, err
 	}
 
 	base = strings.TrimSpace(base)
 	prog := &syncProgress{}
 	if err := app.RunSync(app.SyncOptions{
-		Prune:       prune,
-		PruneRemote: pruneRemote,
-		Base:        base,
-		WorkDir:     projectPath,
-		Progress:    prog,
+		Base:     base,
+		WorkDir:  projectPath,
+		Progress: prog,
 	}); err != nil {
 		return nil, err
 	}
@@ -91,24 +74,48 @@ func RunSync(projectPath, mode, base string) (*SyncResult, error) {
 		msg = "Synced"
 	}
 	return &SyncResult{
-		Mode:      mode,
 		Message:   msg,
 		Logs:      prog.logs,
 		Dashboard: dash,
 	}, nil
 }
 
-func syncFlags(mode string) (prune, pruneRemote bool, err error) {
-	switch mode {
-	case SyncModeStandard:
-		return false, false, nil
-	case SyncModePruneRemote:
-		return false, true, nil
-	case SyncModePruneFull:
-		return true, false, nil
-	default:
-		return false, false, fmt.Errorf("modo de sync inválido: %s", mode)
+// RunHygiene executes branch cleanup for the given mode (full|local).
+func RunHygiene(projectPath, mode, base string) (*HygieneResult, error) {
+	if strings.TrimSpace(projectPath) == "" {
+		return nil, fmt.Errorf("no project open")
 	}
+	mode = strings.TrimSpace(mode)
+	if mode == "" {
+		mode = app.HygieneModeFull
+	}
+
+	base = strings.TrimSpace(base)
+	prog := &syncProgress{}
+	if err := app.RunHygiene(app.HygieneOptions{
+		Mode:     mode,
+		Base:     base,
+		WorkDir:  projectPath,
+		Progress: prog,
+	}); err != nil {
+		return nil, err
+	}
+
+	dash, err := LoadDashboard(projectPath)
+	if err != nil {
+		return nil, err
+	}
+
+	msg := prog.success
+	if msg == "" {
+		msg = "Hygiene complete"
+	}
+	return &HygieneResult{
+		Mode:      mode,
+		Message:   msg,
+		Logs:      prog.logs,
+		Dashboard: dash,
+	}, nil
 }
 
 // syncProgress collects step/success messages for the desktop UI.
@@ -130,8 +137,8 @@ func (p *syncProgress) Detail(msg string) {
 	}
 }
 
-func (p *syncProgress) Info(msg string)  { p.append(msg) }
-func (p *syncProgress) Warn(msg string)  { p.append(msg) }
+func (p *syncProgress) Info(msg string) { p.append(msg) }
+func (p *syncProgress) Warn(msg string) { p.append(msg) }
 func (p *syncProgress) Success(msg string) {
 	p.success = msg
 	p.append(msg)

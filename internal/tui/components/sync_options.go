@@ -4,75 +4,47 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/laerciocrestani/openbench/internal/app"
 	"github.com/laerciocrestani/openbench/internal/tui/theme"
 	"github.com/laerciocrestani/openbench/internal/ui"
 )
 
-// SyncMode identifies a sync execution preset.
-type SyncMode int
-
-const (
-	SyncModeStandard SyncMode = iota
-	SyncModePruneRemote
-	SyncModePruneFull
-)
-
-// SyncModeOption describes one sync preset with CLI flag and explanation.
-type SyncModeOption struct {
-	Mode        SyncMode
+// HygieneModeOption describes one hygiene preset with CLI flag and explanation.
+type HygieneModeOption struct {
+	Mode        string
 	Label       string
 	Flag        string
 	Summary     string
 	Description string
-	Prune       bool
-	PruneRemote bool
 }
 
-// SyncModeCatalog returns all sync presets in display order.
-func SyncModeCatalog() []SyncModeOption {
-	return []SyncModeOption{
+// HygieneModeCatalog returns hygiene presets in display order.
+func HygieneModeCatalog() []HygieneModeOption {
+	return []HygieneModeOption{
 		{
-			Mode:        SyncModeStandard,
-			Label:       "Standard sync",
-			Flag:        "(none)",
-			Summary:     "Fetch + pull base branch",
-			Description: "Updates remote refs (fetch --prune) and fast-forwards the base branch with origin. Does not remove merged branches.",
-			Prune:       false,
-			PruneRemote: false,
+			Mode:        app.HygieneModeFull,
+			Label:       "Full hygiene",
+			Flag:        "--full",
+			Summary:     "Clean local and remote merged branches",
+			Description: "Phase 1: fetch. Phase 2: find merged/absorbed. Phase 3: push --delete, fetch --prune, then branch -d/-D locally.",
 		},
 		{
-			Mode:        SyncModePruneRemote,
-			Label:       "Sync + remote prune",
-			Flag:        "--prune-remote",
-			Summary:     "Sync + clean branches on GitHub",
-			Description: "Phase 1: fetch + pull base. Phase 2: find merged/absorbed remotes. Phase 3: push --delete, then fetch --prune. Keeps local branches.",
-			Prune:       false,
-			PruneRemote: true,
-		},
-		{
-			Mode:        SyncModePruneFull,
-			Label:       "Sync + full prune",
-			Flag:        "--prune",
-			Summary:     "Sync + clean local and remote",
-			Description: "Phase 1: fetch + pull base. Phase 2: find candidates (--merged, cherry, gone). Phase 3: delete remote, fetch --prune, then branch -d/-D locally. Divergent branches prompt before -D.",
-			Prune:       true,
-			PruneRemote: false,
+			Mode:        app.HygieneModeLocal,
+			Label:       "Local only",
+			Flag:        "--local",
+			Summary:     "Clean local branches; keep remotes",
+			Description: "Phase 1: fetch. Phase 2: find local merged/absorbed/gone. Phase 3: delete local only. Does not delete on GitHub.",
 		},
 	}
 }
 
-// ToAppOptions maps the selected preset to app.SyncOptions fields.
-func (o SyncModeOption) ToAppOptions(base string) (prune, pruneRemote bool, resolvedBase string) {
-	return o.Prune, o.PruneRemote || o.Prune, base
-}
-
-// RenderSyncOptionsPanel renders the sync mode picker with a detail table.
-func RenderSyncOptionsPanel(cursor int, modes []SyncModeOption, base string, dirty bool, width int) string {
+// RenderHygieneOptionsPanel renders the hygiene mode picker with a detail table.
+func RenderHygieneOptionsPanel(cursor int, modes []HygieneModeOption, base string, dirty bool, width int) string {
 	inner := ui.ContentInner(width)
 	var lines []string
 
 	if dirty {
-		lines = append(lines, theme.S.Warn.Render("  ⚠ Dirty working tree — commit or stash before syncing"))
+		lines = append(lines, theme.S.Hint.Render("  Dirty working tree — OK for hygiene (other branches only)"))
 		lines = append(lines, "")
 	}
 
@@ -81,12 +53,7 @@ func RenderSyncOptionsPanel(cursor int, modes []SyncModeOption, base string, dir
 		if i == cursor {
 			marker = "> "
 		}
-		flag := mode.Flag
-		if flag == "(none)" {
-			flag = theme.S.Hint.Render("(none)")
-		} else {
-			flag = theme.S.Key.Render(flag)
-		}
+		flag := theme.S.Key.Render(mode.Flag)
 		label := mode.Label + "  " + flag
 		if i == cursor {
 			lines = append(lines, theme.S.Current.Render(marker+label))
@@ -100,13 +67,13 @@ func RenderSyncOptionsPanel(cursor int, modes []SyncModeOption, base string, dir
 	lines = append(lines, "")
 
 	selected := modes[cursor]
-	lines = append(lines, renderSyncDetailTable(selected, base, inner))
+	lines = append(lines, renderHygieneDetailTable(selected, base, inner))
 
 	body := strings.Join(lines, "\n")
-	return RenderPanel("Sync · Options", body, width)
+	return RenderPanel("Hygiene · Options", body, width)
 }
 
-func renderSyncDetailTable(mode SyncModeOption, base string, inner int) string {
+func renderHygieneDetailTable(mode HygieneModeOption, base string, inner int) string {
 	const colW = 14
 
 	lines := []string{
@@ -120,45 +87,46 @@ func renderSyncDetailTable(mode SyncModeOption, base string, inner int) string {
 		theme.S.Hint.Render("  Commands"),
 	}
 
-	for _, cmd := range syncCommandPreview(mode, base) {
+	for _, cmd := range hygieneCommandPreview(mode, base) {
 		lines = append(lines, theme.S.Hint.Render("  · "+cmd))
 	}
 
 	return strings.Join(lines, "\n")
 }
 
-func syncCommandPreview(mode SyncModeOption, base string) []string {
+func hygieneCommandPreview(mode HygieneModeOption, base string) []string {
 	if base == "" {
 		base = "main"
 	}
 	cmds := []string{
 		"[1] git fetch origin --prune",
-		"[1] git checkout " + base,
-		"[1] git pull --ff-only origin " + base,
+		"[2] git branch --merged " + base + " …",
+		"[2] git cherry " + base + " <branch> …",
 	}
-	if mode.Prune || mode.PruneRemote {
-		cmds = append(cmds,
-			"[2] git branch --merged "+base+" …",
-			"[2] git cherry "+base+" <branch> …",
-		)
-	}
-	if mode.Prune || mode.PruneRemote {
+	if mode.Mode == app.HygieneModeFull {
 		cmds = append(cmds, "[3] git push origin --delete <branch> …")
 		cmds = append(cmds, "[3] git fetch origin --prune")
 	}
-	if mode.Prune {
-		cmds = append(cmds,
-			"[3] git branch -d <merged> …",
-			"[3] git branch -D <squash/gone> …",
-		)
-	}
+	cmds = append(cmds,
+		"[3] git branch -d <merged> …",
+		"[3] git branch -D <squash/gone> …",
+	)
 	return cmds
 }
 
-// RenderSyncBaseEditor renders the base branch edit step.
+// RenderHygieneBaseEditor renders the base branch edit step.
+func RenderHygieneBaseEditor(baseField string, width int) string {
+	body := theme.S.Hint.Render("  Base branch for prune:\n\n  ") + baseField
+	return RenderPanel("Hygiene · Base branch", body, width)
+}
+
+// Deprecated aliases for older call sites during migration.
+func SyncModeCatalog() []HygieneModeOption { return HygieneModeCatalog() }
+func RenderSyncOptionsPanel(cursor int, modes []HygieneModeOption, base string, dirty bool, width int) string {
+	return RenderHygieneOptionsPanel(cursor, modes, base, dirty, width)
+}
 func RenderSyncBaseEditor(baseField string, width int) string {
-	body := theme.S.Hint.Render("  Base branch for pull and prune:\n\n  ") + baseField
-	return RenderPanel("Sync · Base branch", body, width)
+	return RenderHygieneBaseEditor(baseField, width)
 }
 
 func wrapPlain(text string, width int) string {

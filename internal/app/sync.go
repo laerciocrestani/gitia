@@ -2,21 +2,29 @@ package app
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/laerciocrestani/openbench/internal/config"
 	gitpkg "github.com/laerciocrestani/openbench/internal/git"
 	"github.com/laerciocrestani/openbench/internal/ui"
 )
 
+// SyncOptions configures base-branch synchronization (fetch + fast-forward).
+// Prune flags are used internally by RunHygiene via discoverPruneCandidates;
+// RunSync ignores them.
 type SyncOptions struct {
-	Prune       bool
-	PruneRemote bool
-	Base        string
-	DryRun      bool
-	WorkDir     string // optional; when set, git runs in this directory
-	Progress    Progress
+	Prune          bool // full prune (local + remote) — hygiene only
+	PruneRemote    bool // deprecated remote-only; unused by new hygiene modes
+	PruneLocalOnly bool // local-only prune — hygiene only
+	Base           string
+	DryRun         bool
+	WorkDir        string // optional; when set, git runs in this directory
+	Progress       Progress
 }
 
+// RunSync fetches origin and fast-forwards the local base branch.
+// When already on the base, pulls --ff-only. When on a feature branch, updates
+// the local base ref from origin without leaving the current branch.
 func RunSync(opts SyncOptions) error {
 	prog := opts.Progress
 	if prog == nil {
@@ -41,7 +49,7 @@ func RunSync(opts SyncOptions) error {
 		return fmt.Errorf("working tree com alterações — commit ou stash antes de sincronizar")
 	}
 
-	base := opts.Base
+	base := strings.TrimSpace(opts.Base)
 	if base == "" {
 		if cfg, err := config.Load(); err == nil {
 			base = cfg.BaseBranch
@@ -50,6 +58,7 @@ func RunSync(opts SyncOptions) error {
 	if base == "" {
 		base = "main"
 	}
+	base = strings.TrimPrefix(base, "origin/")
 
 	previous, err := repo.CurrentBranch()
 	if err != nil {
@@ -59,7 +68,7 @@ func RunSync(opts SyncOptions) error {
 	fmt.Println()
 	if sess, ok := prog.(*ui.Session); ok {
 		sess.MetaRow("Base", base)
-		if previous != base && !opts.shouldPrune() {
+		if previous != base {
 			sess.MetaRow("Branch", previous)
 		}
 		sess.Divider()
@@ -75,68 +84,36 @@ func RunSync(opts SyncOptions) error {
 		return err
 	}
 
-	if err := prog.Step("Pulling "+base, func() error {
+	if err := prog.Step("Updating "+base, func() error {
 		if opts.DryRun {
-			prog.Detail(fmt.Sprintf("git checkout %s && git pull --ff-only origin %s", base, base))
+			if previous == base {
+				prog.Detail("git pull --ff-only origin " + base)
+			} else {
+				prog.Detail(fmt.Sprintf("git fetch origin %s:%s", base, base))
+			}
 			return nil
 		}
-		return repo.PullBase(base)
-	}); err != nil {
-		DiagnoseSyncFailure(base, err, prog)
-		return err
-	}
-
-	if !opts.shouldPrune() {
-		prog.Success("Synced with origin/" + base)
-		return nil
-	}
-
-	local, remote, err := discoverPruneCandidates(prog, repo, opts, base)
-	if err != nil {
-		return err
-	}
-
-	if len(local) == 0 && len(remote) == 0 {
-		prog.Info("No branches to prune")
-		prog.Success("Synced with origin/" + base)
-		return nil
-	}
-
-	if sess, ok := prog.(*ui.Session); ok {
-		sess.Section("Prune")
-	}
-
-	remoteRemoved, err := pruneRemoteBranches(prog, repo, remote, opts.DryRun)
-	if err != nil {
-		return err
-	}
-
-	if remoteRemoved > 0 || (opts.DryRun && len(remote) > 0) {
-		if err := refreshOriginAfterRemotePrune(prog, repo, opts.DryRun); err != nil {
-			return err
+		if previous == base {
+			if err := repo.PullFFOnly(); err != nil {
+				DiagnoseSyncFailure(base, err, prog)
+				return err
+			}
+			return nil
 		}
-	}
-
-	if opts.pruneLocal() && remoteRemoved > 0 {
-		local, err = repo.LocalPruneCandidates(base)
+		updated, err := repo.UpdateLocalBranchFromOrigin(base)
 		if err != nil {
+			DiagnoseSyncFailure(base, err, prog)
 			return err
 		}
-	}
-
-	localRemoved, err := pruneLocalBranches(prog, repo, local, base, opts.DryRun)
-	if err != nil {
+		if !updated {
+			prog.Detail(base + " already up to date")
+		}
+		return nil
+	}); err != nil {
 		return err
 	}
 
-	msg := "Synced"
-	if localRemoved > 0 {
-		msg += fmt.Sprintf(" · %d local removed", localRemoved)
-	}
-	if remoteRemoved > 0 {
-		msg += fmt.Sprintf(" · %d remote removed", remoteRemoved)
-	}
-	prog.Success(msg)
+	prog.Success("Synced with origin/" + base)
 	return nil
 }
 
@@ -195,11 +172,11 @@ func pruneLocalBranches(prog Progress, repo *gitpkg.Repo, names []string, base s
 }
 
 func (o SyncOptions) shouldPrune() bool {
-	return o.Prune || o.PruneRemote
+	return o.Prune || o.PruneRemote || o.PruneLocalOnly
 }
 
 func (o SyncOptions) pruneLocal() bool {
-	return o.Prune
+	return o.Prune || o.PruneLocalOnly
 }
 
 func (o SyncOptions) pruneRemote() bool {

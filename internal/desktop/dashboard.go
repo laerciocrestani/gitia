@@ -27,6 +27,8 @@ type Dashboard struct {
 	CommitsAheadOfBase int                 `json:"commitsAheadOfBase"`
 	HasBranchDiff      bool                `json:"hasBranchDiff"`
 	BaseBehind         int                 `json:"baseBehind"`
+	HygieneLocal       int                 `json:"hygieneLocal"`
+	HygieneRemote      int                 `json:"hygieneRemote"`
 	HeadHash           string              `json:"headHash"`
 	RemoteURL          string              `json:"remoteURL"`
 	StatusLabel        string              `json:"statusLabel"`
@@ -122,6 +124,10 @@ func LoadDashboard(projectPath string) (*Dashboard, error) {
 			Summary:   "carregando…",
 			Services:  []DockerServiceView{},
 		}
+	}
+	if local, remote, err := app.CountHygieneCandidates(d.Path, d.BaseBranch); err == nil {
+		d.HygieneLocal = local
+		d.HygieneRemote = remote
 	}
 	return d, nil
 }
