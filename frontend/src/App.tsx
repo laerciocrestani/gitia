@@ -79,9 +79,11 @@ import { DoctorFixDialog } from "@/components/DoctorFixDialog"
 import { DoctorGateAlert } from "@/components/DoctorGateAlert"
 import { doctorBlocksAction, doctorGate } from "@/lib/doctor-gate"
 import { FloatingChat } from "@/components/floating-chat"
+import { SkillsManager } from "@/components/skills-manager"
+import { ToolbarHelpDialog } from "@/components/ToolbarHelpDialog"
 import {
   TerminalPanel,
-  type TerminalSessionSpec,
+  type DockerShellRequest,
 } from "@/components/terminal-panel"
 import { UsageChartPanel } from "@/components/usage-chart"
 import {
@@ -1088,7 +1090,7 @@ function DashboardView({
         </CardContent>
       </Card>
 
-      <Card className="flex h-[min(40vh,22rem)] shrink-0 flex-col overflow-hidden">
+      <Card className="flex h-[min(26vh,14rem)] shrink-0 flex-col overflow-hidden">
         <CardHeader className="shrink-0 py-3">
           <CardTitle className="flex items-center gap-2 text-sm">
             <Terminal className="size-4 text-muted-foreground" />
@@ -1287,6 +1289,7 @@ function App() {
 
   // Modals
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsTab, setSettingsTab] = useState("geral")
   const [usageOpen, setUsageOpen] = useState(false)
   const [onboardingOpen, setOnboardingOpen] = useState(false)
   const [commitOpen, setCommitOpen] = useState(false)
@@ -1294,7 +1297,7 @@ function App() {
   const [recreateOpen, setRecreateOpen] = useState(false)
   const [recreateService, setRecreateService] = useState("")
   const [dockerEnvOpen, setDockerEnvOpen] = useState(false)
-  const [termSession, setTermSession] = useState<TerminalSessionSpec>({ kind: "host" })
+  const [dockerShellReq, setDockerShellReq] = useState<DockerShellRequest | null>(null)
 
   // Sync / Hygiene
   const [syncBusy, setSyncBusy] = useState(false)
@@ -1304,6 +1307,7 @@ function App() {
   const [hygieneBusy, setHygieneBusy] = useState(false)
   const [hygieneResult, setHygieneResult] = useState<HygieneResult | null>(null)
   const [hygieneMode, setHygieneMode] = useState<string | null>(null)
+  const [toolbarHelpOpen, setToolbarHelpOpen] = useState(false)
 
   // Pull (one-click)
   const [pullBusy, setPullBusy] = useState(false)
@@ -1414,7 +1418,6 @@ function App() {
       if (d) {
         setOpenPRReady(false)
         applyDashboard(d)
-        setTermSession({ kind: "host" })
         await refreshStatuses()
         await reloadPrefs()
       }
@@ -1433,7 +1436,6 @@ function App() {
       if (d) {
         setOpenPRReady(false)
         applyDashboard(d)
-        setTermSession({ kind: "host" })
         await refreshStatuses()
         await reloadPrefs()
       }
@@ -1452,7 +1454,6 @@ function App() {
       if (d) {
         setOpenPRReady(false)
         applyDashboard(d)
-        setTermSession({ kind: "host" })
       }
       await refreshStatuses()
       await reloadPrefs()
@@ -1514,7 +1515,6 @@ function App() {
       setChatOpen(false)
       setDoctorOpen(false)
       setDoctorReport(null)
-      setTermSession({ kind: "host" })
       await refreshStatuses()
       await reloadPrefs()
     } catch (e) {
@@ -2186,10 +2186,10 @@ function App() {
   }
 
   const openDockerShell = (service: string, presetId?: string) => {
-    setTermSession({
-      kind: "docker",
+    setDockerShellReq({
       service,
       presetId: presetId?.trim() || undefined,
+      key: Date.now(),
     })
   }
 
@@ -2197,6 +2197,7 @@ function App() {
 
   const openSettings = async () => {
     setSettingsOpen(true)
+    setSettingsTab("geral")
     setUpdateResult(null)
     setAiApiKey("")
     await reloadPrefs()
@@ -2309,10 +2310,10 @@ function App() {
 
   /* --------------------------- lifecycle ---------------------------- */
 
-  // Host shell when switching / closing projects.
+  // Close Docker sheet when switching / closing projects.
   useEffect(() => {
-    setTermSession({ kind: "host" })
     setDockerEnvOpen(false)
+    setDockerShellReq(null)
   }, [dash?.path])
 
   // After the fast dashboard lands, load Docker + open PR + commit calendar off the critical path.
@@ -3024,6 +3025,15 @@ function App() {
                   </Badge>
                 )}
               </Button>
+              <Button
+                size="icon-sm"
+                variant="ghost"
+                onClick={() => setToolbarHelpOpen(true)}
+                title="Ajuda: o que cada ação faz"
+                aria-label="Ajuda: o que cada ação faz"
+              >
+                <CircleHelp className="text-muted-foreground" />
+              </Button>
             </div>
 
             <DashboardView
@@ -3039,8 +3049,7 @@ function App() {
                 <TerminalPanel
                   projectPath={dash.path}
                   visible
-                  session={termSession}
-                  onResetToHost={() => setTermSession({ kind: "host" })}
+                  dockerRequest={dockerShellReq}
                 />
               }
               onSelectFile={(f) => void openFileDiff(f)}
@@ -3381,6 +3390,8 @@ function App() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ToolbarHelpDialog open={toolbarHelpOpen} onOpenChange={setToolbarHelpOpen} />
 
       {/* Sync result dialog */}
       <Dialog
@@ -3872,13 +3883,20 @@ function App() {
             </DialogTitle>
           </DialogHeader>
 
-          <Tabs defaultValue="geral" className="min-h-0 w-full gap-3">
-            <TabsList className="w-full">
+          <Tabs
+            value={settingsTab}
+            onValueChange={(v) => setSettingsTab(String(v ?? "geral"))}
+            className="min-h-0 w-full gap-3"
+          >
+            <TabsList className="w-full flex-wrap h-auto">
               <TabsTrigger value="geral" className="flex-1">
                 Geral
               </TabsTrigger>
               <TabsTrigger value="ia" className="flex-1">
                 IA
+              </TabsTrigger>
+              <TabsTrigger value="skills" className="flex-1">
+                Skills
               </TabsTrigger>
               <TabsTrigger value="atualizacoes" className="flex-1">
                 Atualizações
@@ -4101,6 +4119,13 @@ function App() {
                 {aiBusy ? <Loader2 className="animate-spin" /> : null}
                 Salvar IA
               </Button>
+            </TabsContent>
+
+            <TabsContent
+              value="skills"
+              className="flex max-h-[min(70vh,32rem)] flex-col gap-3 overflow-y-auto pt-1"
+            >
+              <SkillsManager active={settingsOpen && settingsTab === "skills"} />
             </TabsContent>
 
             <TabsContent value="atualizacoes" className="flex flex-col gap-3 pt-1">

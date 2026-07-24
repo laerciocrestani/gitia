@@ -19,7 +19,7 @@ type AppService struct {
 	projectPath     string
 	trayRefresh     func()
 	hub             *desktop.StatusHub
-	term            *desktop.TerminalSession
+	terms           map[string]*termEntry
 	chatCancel      context.CancelFunc
 	pendingTool     *pendingChatTool
 	repoWatch       *desktop.RepoWatcher

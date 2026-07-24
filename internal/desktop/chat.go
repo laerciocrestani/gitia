@@ -7,8 +7,10 @@ import (
 	"strings"
 
 	"github.com/laerciocrestani/openbench/internal/ai"
+	"github.com/laerciocrestani/openbench/internal/aiskills"
 	"github.com/laerciocrestani/openbench/internal/app"
 	"github.com/laerciocrestani/openbench/internal/config"
+	"github.com/laerciocrestani/openbench/internal/docker"
 	gitpkg "github.com/laerciocrestani/openbench/internal/git"
 )
 
@@ -63,6 +65,7 @@ func BuildProjectChatSystemPrompt(projectPath string) string {
 	var b strings.Builder
 	b.WriteString("Você é o assistente do openbench, um app de desenvolvimento (git, Docker Compose, commits/PR com IA).\n")
 	b.WriteString("Responda em português brasileiro, de forma objetiva e prática.\n")
+	b.WriteString("Foque em entorno do projeto (git/docker/hygiene). Para implementar features grandes, oriente o usuário ao editor/agente de código.\n")
 	b.WriteString("Use o contexto do projeto abaixo. Se faltar informação, diga o que precisa.\n\n")
 	b.WriteString("Você tem tools para agir no projeto:\n")
 	b.WriteString("- read_file / list_dir: leitura (automática)\n")
@@ -70,7 +73,8 @@ func BuildProjectChatSystemPrompt(projectPath string) string {
 	b.WriteString("Quando o usuário pedir para criar/editar arquivos ou rodar comandos, USE as tools — ")
 	b.WriteString("não diga que não tem acesso ao filesystem. Nunca afirme que escreveu um arquivo ")
 	b.WriteString("ou executou um comando sem ter chamado a tool correspondente.\n")
-	b.WriteString("Paths são relativos à raiz do projeto.\n\n")
+	b.WriteString("Paths são relativos à raiz do projeto.\n")
+	b.WriteString("Fluxos dedicados do app (não substitua pelo chat): Commit, PR, Doctor, Docker up/down.\n\n")
 	b.WriteString("Projeto: ")
 	b.WriteString(name)
 	b.WriteString("\nCaminho: ")
@@ -79,6 +83,87 @@ func BuildProjectChatSystemPrompt(projectPath string) string {
 	b.WriteString(branch)
 	b.WriteString("\n\nResumo do working tree (git diff --stat):\n")
 	b.WriteString(stat)
+	b.WriteString("\n\n")
+	b.WriteString(formatDockerSnapshot(projectPath))
+	if enabled, err := aiskills.ListEnabled(); err == nil {
+		if section := aiskills.FormatPromptSection(enabled); section != "" {
+			b.WriteString("\n\n")
+			b.WriteString(section)
+		}
+	}
+	return b.String()
+}
+
+// formatDockerSnapshot builds a compact Compose status block for the chat prompt.
+func formatDockerSnapshot(projectPath string) string {
+	ov := docker.LoadOverview(projectPath)
+	var b strings.Builder
+	b.WriteString("## Snapshot Docker\n")
+	if ov == nil {
+		b.WriteString("(indisponível)\n")
+		return b.String()
+	}
+	if !ov.Available {
+		b.WriteString("docker CLI: não encontrado\n")
+		if ov.Error != "" {
+			b.WriteString("erro: ")
+			b.WriteString(ov.Error)
+			b.WriteByte('\n')
+		}
+		return b.String()
+	}
+	if !ov.DaemonRunning {
+		b.WriteString("daemon: parado\n")
+		if ov.Error != "" {
+			b.WriteString("erro: ")
+			b.WriteString(ov.Error)
+			b.WriteByte('\n')
+		}
+		return b.String()
+	}
+	b.WriteString("daemon: ok\n")
+	if ov.ComposeFile == "" {
+		b.WriteString("compose: (nenhum arquivo detectado na raiz/ancestrais)\n")
+		return b.String()
+	}
+	b.WriteString("compose: ")
+	b.WriteString(ov.ComposeFile)
+	b.WriteByte('\n')
+	if ov.ProjectName != "" {
+		b.WriteString("project: ")
+		b.WriteString(ov.ProjectName)
+		b.WriteByte('\n')
+	}
+	if ov.Error != "" {
+		b.WriteString("erro: ")
+		b.WriteString(ov.Error)
+		b.WriteByte('\n')
+	}
+	if len(ov.Containers) == 0 {
+		b.WriteString("serviços: (nenhum container listado — talvez nunca tenha subido)\n")
+		return b.String()
+	}
+	b.WriteString("serviços:\n")
+	for _, c := range ov.Containers {
+		svc := c.Service
+		if svc == "" {
+			svc = c.Name
+		}
+		b.WriteString("- ")
+		b.WriteString(svc)
+		b.WriteString(": ")
+		b.WriteString(c.State)
+		if c.Health != "" {
+			b.WriteString(" (health=")
+			b.WriteString(c.Health)
+			b.WriteByte(')')
+		}
+		if c.Ports != "" {
+			b.WriteString(" ports=")
+			b.WriteString(c.Ports)
+		}
+		b.WriteByte('\n')
+	}
 	return b.String()
 }
 

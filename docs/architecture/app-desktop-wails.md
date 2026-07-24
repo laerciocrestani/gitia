@@ -23,6 +23,7 @@ Substituir a CLI/`ob ui` (TUI) por um **aplicativo desktop** multi-OS com:
 | Persistência UI | prefs locais (pinned projects, validate commit/PR) | [ADR-003](adr/003-prefs-e-projetos.md) |
 | Distribuição | `wails3 package` + updater GitHub | [ADR-004](adr/004-auto-update.md) |
 | CLI | Removida na v1 do app | [ADR-005](adr/005-descontinuar-cli.md) |
+| CI/CD (Actions) | `gh` + `internal/gha` + painel desktop | [ci-github-actions.md](ci-github-actions.md), [ADR-007](adr/007-ci-via-gh-cli.md), [ADR-008](adr/008-ci-confirm-sanitize-usage.md) |
 
 ## C4 — Contexto
 
