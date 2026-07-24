@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposto (aceitar junto com a arquitetura de CI)
+Aceito
 
 ## Contexto
 

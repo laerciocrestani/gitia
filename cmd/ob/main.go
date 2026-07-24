@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"strconv"
 
 	"github.com/laerciocrestani/openbench/internal/app"
 	"github.com/laerciocrestani/openbench/internal/config"
@@ -439,7 +440,54 @@ func main() {
 	dockerCmd.PersistentFlags().StringVarP(&dockerComposeFile, "file", "f", "", "caminho do compose file")
 	dockerCmd.AddCommand(dockerStatusCmd, dockerPSCmd, dockerUpCmd, dockerDownCmd, dockerStopCmd, dockerStartCmd, dockerRecreateCmd, dockerExecCmd, dockerLogsCmd, dockerShCmd, dockerPresetCmd, dockerKitCmd)
 
-	root.AddCommand(installCmd, updateCmd, syncCmd, hygieneCmd, versionCmd, statusCmd, commitCmd, pushCmd, prCmd, configCmd, pricingCmd, reportCmd, uiCmd, doctorCmd, dockerCmd)
+	var (
+		ciFailedOnly  bool
+		ciLimit       int
+		ciBranch      string
+		ciAllBranches bool
+	)
+	ciCmd := &cobra.Command{
+		Use:   "ci",
+		Short: "GitHub Actions — observar runs do repositório atual",
+	}
+	ciStatusCmd := &cobra.Command{
+		Use:   "status",
+		Short: "Lista workflow runs (branch atual por padrão)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return app.RunCIStatus(app.CIStatusOptions{
+				FailedOnly:  ciFailedOnly,
+				Limit:       ciLimit,
+				Branch:      ciBranch,
+				AllBranches: ciAllBranches,
+			})
+		},
+	}
+	ciStatusCmd.Flags().BoolVar(&ciFailedOnly, "failed", false, "somente runs falhos")
+	ciStatusCmd.Flags().IntVar(&ciLimit, "limit", 20, "máximo de runs (até 50)")
+	ciStatusCmd.Flags().StringVar(&ciBranch, "branch", "", "filtrar branch (default: branch atual)")
+	ciStatusCmd.Flags().BoolVar(&ciAllBranches, "all", false, "todas as branches")
+	ciViewCmd := &cobra.Command{
+		Use:   "view <run-id>",
+		Short: "Detalha um workflow run (jobs/steps)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, err := strconv.ParseInt(args[0], 10, 64)
+			if err != nil {
+				return fmt.Errorf("run-id inválido: %s", args[0])
+			}
+			return app.RunCIView(id)
+		},
+	}
+	ciUsageCmd := &cobra.Command{
+		Use:   "usage",
+		Short: "Mostra evidência de minutos/uso de Actions",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return app.RunCIUsage()
+		},
+	}
+	ciCmd.AddCommand(ciStatusCmd, ciViewCmd, ciUsageCmd)
+
+	root.AddCommand(installCmd, updateCmd, syncCmd, hygieneCmd, versionCmd, statusCmd, commitCmd, pushCmd, prCmd, configCmd, pricingCmd, reportCmd, uiCmd, doctorCmd, dockerCmd, ciCmd)
 
 	if err := root.Execute(); err != nil {
 		os.Exit(1)

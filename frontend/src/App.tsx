@@ -72,6 +72,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { useTheme } from "@/components/theme-provider"
+import { CIPanel } from "@/components/ci-panel"
 import { DockerEnvironmentSheet } from "@/components/docker-environment-sheet"
 import { DockerGlobalPanel } from "@/components/docker-global-panel"
 import { DoctorDialog } from "@/components/DoctorDialog"
@@ -128,6 +129,7 @@ import {
   Stethoscope,
   Trash2,
   Terminal,
+  Workflow,
   X,
 } from "lucide-react"
 
@@ -1297,6 +1299,7 @@ function App() {
   const [recreateOpen, setRecreateOpen] = useState(false)
   const [recreateService, setRecreateService] = useState("")
   const [dockerEnvOpen, setDockerEnvOpen] = useState(false)
+  const [ciOpen, setCiOpen] = useState(false)
   const [dockerShellReq, setDockerShellReq] = useState<DockerShellRequest | null>(null)
 
   // Sync / Hygiene
@@ -3026,6 +3029,16 @@ function App() {
                 )}
               </Button>
               <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setCiOpen(true)}
+                disabled={busy}
+                title="GitHub Actions — runs da branch atual"
+              >
+                <Workflow />
+                CI
+              </Button>
+              <Button
                 size="icon-sm"
                 variant="ghost"
                 onClick={() => setToolbarHelpOpen(true)}
@@ -4254,6 +4267,10 @@ function App() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {dash ? (
+        <CIPanel open={ciOpen} onOpenChange={setCiOpen} projectPath={dash.path} />
+      ) : null}
 
       <DockerEnvironmentSheet
         open={dockerEnvOpen}

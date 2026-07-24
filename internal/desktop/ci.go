@@ -1,0 +1,197 @@
+package desktop
+
+import (
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/laerciocrestani/openbench/internal/gha"
+)
+
+// CIStatusView is the Observe-slice payload for the CI panel.
+type CIStatusView struct {
+	Branch  string       `json:"branch"`
+	HeadSHA string       `json:"headSha,omitempty"`
+	Runs    []CIRunView  `json:"runs"`
+	Usage   CIUsageView  `json:"usage"`
+	Filter  CIFilterView `json:"filter"`
+}
+
+// CIFilterView mirrors list filters for the UI.
+type CIFilterView struct {
+	Branch     string `json:"branch"`
+	FailedOnly bool   `json:"failedOnly"`
+	Limit      int    `json:"limit"`
+}
+
+// CIRunView is one workflow run row.
+type CIRunView struct {
+	ID           int64  `json:"id"`
+	Name         string `json:"name"`
+	DisplayTitle string `json:"displayTitle"`
+	Event        string `json:"event"`
+	Status       string `json:"status"`
+	Conclusion   string `json:"conclusion"`
+	HeadBranch   string `json:"headBranch"`
+	HeadSHA      string `json:"headSha"`
+	URL          string `json:"url"`
+	WorkflowName string `json:"workflowName"`
+	CreatedAt    string `json:"createdAt"`
+	UpdatedAt    string `json:"updatedAt"`
+	Failed       bool   `json:"failed"`
+}
+
+// CIJobView is a job inside a run.
+type CIJobView struct {
+	ID         int64        `json:"id"`
+	Name       string       `json:"name"`
+	Status     string       `json:"status"`
+	Conclusion string       `json:"conclusion"`
+	Failed     bool         `json:"failed"`
+	Steps      []CIStepView `json:"steps"`
+}
+
+// CIStepView is a step inside a job.
+type CIStepView struct {
+	Name       string `json:"name"`
+	Status     string `json:"status"`
+	Conclusion string `json:"conclusion"`
+	Number     int    `json:"number"`
+	Failed     bool   `json:"failed"`
+}
+
+// CIRunDetailView is run + jobs for drill-down.
+type CIRunDetailView struct {
+	Run   CIRunView   `json:"run"`
+	Jobs  []CIJobView `json:"jobs"`
+	Usage CIUsageView `json:"usage"`
+}
+
+// CIUsageView always accompanies CI data (ADR-008).
+type CIUsageView struct {
+	State               string   `json:"state"`
+	RunMinutes          *float64 `json:"runMinutes,omitempty"`
+	WindowMinutes       *float64 `json:"windowMinutes,omitempty"`
+	OrgUsedMinutes      *float64 `json:"orgUsedMinutes,omitempty"`
+	OrgIncludedMinutes  *float64 `json:"orgIncludedMinutes,omitempty"`
+	OrgRemainingMinutes *float64 `json:"orgRemainingMinutes,omitempty"`
+	Message             string   `json:"message"`
+}
+
+// LoadCIStatus lists Actions runs for the open project.
+func LoadCIStatus(projectPath string, failedOnly bool, limit int) (*CIStatusView, error) {
+	if strings.TrimSpace(projectPath) == "" {
+		return nil, fmt.Errorf("no project open")
+	}
+	client, err := gha.Open(projectPath)
+	if err != nil {
+		return nil, err
+	}
+	snap, err := client.LoadStatus(gha.ListFilter{
+		FailedOnly: failedOnly,
+		Limit:      limit,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return statusToView(snap), nil
+}
+
+// LoadCIRunDetail returns one run with jobs/steps.
+func LoadCIRunDetail(projectPath string, runID int64) (*CIRunDetailView, error) {
+	if strings.TrimSpace(projectPath) == "" {
+		return nil, fmt.Errorf("no project open")
+	}
+	if runID <= 0 {
+		return nil, fmt.Errorf("run id inválido")
+	}
+	client, err := gha.Open(projectPath)
+	if err != nil {
+		return nil, err
+	}
+	detail, err := client.ViewRun(runID)
+	if err != nil {
+		return nil, err
+	}
+	usage := client.UsageForRun(detail.Run, client.RemoteOwner())
+
+	view := &CIRunDetailView{
+		Run:   runToView(detail.Run),
+		Usage: usageToView(usage),
+	}
+	for _, j := range detail.Jobs {
+		jv := CIJobView{
+			ID:         j.ID,
+			Name:       j.Name,
+			Status:     j.Status,
+			Conclusion: j.Conclusion,
+			Failed:     gha.Failed(j.Status, j.Conclusion),
+		}
+		for _, s := range j.Steps {
+			jv.Steps = append(jv.Steps, CIStepView{
+				Name:       s.Name,
+				Status:     s.Status,
+				Conclusion: s.Conclusion,
+				Number:     s.Number,
+				Failed:     gha.Failed(s.Status, s.Conclusion),
+			})
+		}
+		view.Jobs = append(view.Jobs, jv)
+	}
+	return view, nil
+}
+
+func statusToView(snap *gha.StatusSnapshot) *CIStatusView {
+	v := &CIStatusView{
+		Branch:  snap.Branch,
+		HeadSHA: snap.HeadSHA,
+		Usage:   usageToView(snap.Usage),
+		Filter: CIFilterView{
+			Branch:     snap.Filter.Branch,
+			FailedOnly: snap.Filter.FailedOnly,
+			Limit:      snap.Filter.Limit,
+		},
+		Runs: []CIRunView{},
+	}
+	for _, r := range snap.Runs {
+		v.Runs = append(v.Runs, runToView(r))
+	}
+	return v
+}
+
+func runToView(r gha.WorkflowRun) CIRunView {
+	return CIRunView{
+		ID:           r.ID,
+		Name:         r.Name,
+		DisplayTitle: r.DisplayTitle,
+		Event:        r.Event,
+		Status:       r.Status,
+		Conclusion:   r.Conclusion,
+		HeadBranch:   r.HeadBranch,
+		HeadSHA:      r.HeadSHA,
+		URL:          r.URL,
+		WorkflowName: r.WorkflowName,
+		CreatedAt:    formatCITime(r.CreatedAt),
+		UpdatedAt:    formatCITime(r.UpdatedAt),
+		Failed:       gha.Failed(r.Status, r.Conclusion),
+	}
+}
+
+func usageToView(u gha.ActionsUsage) CIUsageView {
+	return CIUsageView{
+		State:               u.State,
+		RunMinutes:          u.RunMinutes,
+		WindowMinutes:       u.WindowMinutes,
+		OrgUsedMinutes:      u.OrgUsedMinutes,
+		OrgIncludedMinutes:  u.OrgIncludedMinutes,
+		OrgRemainingMinutes: u.OrgRemainingMinutes,
+		Message:             u.Message,
+	}
+}
+
+func formatCITime(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.UTC().Format(time.RFC3339)
+}

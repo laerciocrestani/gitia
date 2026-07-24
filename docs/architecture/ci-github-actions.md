@@ -254,7 +254,7 @@ Meta de produto = conjunto completo de RFs. Entrega interna em fatias **testáve
 
 | Fatia | Entrega | Aceite |
 |-------|---------|--------|
-| **A — Observe** | `internal/gha` list/view/jobs + painel + `ob ci status/view` + usage best-effort | Ver todos os runs do branch/SHA; filtro failed; usage com estado |
+| **A — Observe** | `internal/gha` list/view/jobs + painel + `ob ci status/view` + usage best-effort | ✅ `internal/gha` + `ob ci status\|view\|usage` + painel CI (desktop) + `ActionsUsage` |
 | **B — Logs** | fetch sob demanda + `redact` + log viewer + `ob ci logs` | Log grande sob demanda; secrets óbvios redigidos |
 | **C — React** | rerun + dispatch + confirms + avisos de minutos | Mutação só com confirm; custo visível |
 | **D — Orchestrate** | pós-push watch + default-branch warning no push | Push main alerta; CI aparece sem abrir browser |
@@ -307,5 +307,4 @@ docs/architecture/
 
 ---
 
-**Próximo passo após aceite desta arquitetura:** implementar fatia **A (Observe)** — `internal/gha` + painel mínimo + `ob ci status`.
-`)
+**Próximo passo:** fatia **B (Logs)** — fetch sob demanda + `internal/redact` + log viewer + `ob ci logs`.
