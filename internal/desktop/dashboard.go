@@ -36,6 +36,10 @@ type Dashboard struct {
 	HasDocker          bool                `json:"hasDocker"`
 	Docker             DockerStatus        `json:"docker"`
 	OpenPR             *PRStatus           `json:"openPR,omitempty"`
+	CIState            string              `json:"ciState,omitempty"`
+	CILabel            string              `json:"ciLabel,omitempty"`
+	CIFromCache        bool                `json:"ciFromCache,omitempty"`
+	CIHost             string              `json:"ciHost,omitempty"`
 	AIReady            bool                `json:"aiReady"`
 	Provider           string              `json:"provider"`
 	Model              string              `json:"model"`
@@ -90,6 +94,7 @@ type PRStatus struct {
 	State          string `json:"state"`
 	Number         int    `json:"number"`
 	IsDraft        bool   `json:"isDraft"`
+	HeadRefName    string `json:"headRefName,omitempty"`
 	Mergeable      string `json:"mergeable,omitempty"`
 	ReviewDecision string `json:"reviewDecision,omitempty"`
 	ChecksPass     int    `json:"checksPass"`
@@ -162,6 +167,7 @@ func mapPRStatus(pr *prpkg.PRView) *PRStatus {
 		State:          pr.State,
 		Number:         pr.Number,
 		IsDraft:        pr.IsDraft,
+		HeadRefName:    pr.HeadRefName,
 		Mergeable:      pr.Mergeable,
 		ReviewDecision: pr.ReviewDecision,
 		ChecksPass:     pr.ChecksPass,
@@ -247,6 +253,13 @@ func FromSnapshot(projectPath string, snap *app.WorkspaceSnapshot) *Dashboard {
 		d.OpenPR = mapPRStatus(snap.OpenPR)
 	}
 
+	if sum := LoadCISummaryForProject(projectPath, d.Branch); sum != nil {
+		d.CIState = sum.State
+		d.CILabel = sum.Label
+		d.CIFromCache = sum.FromCache
+		d.CIHost = sum.Host
+	}
+
 	for _, step := range snap.NextSteps {
 		d.NextSteps = append(d.NextSteps, NextStepView{
 			Command: step.Command,
@@ -288,8 +301,9 @@ func mapDocker(ov *dockerpkg.Overview, hasDocker bool) DockerStatus {
 			Health:    c.Health,
 		})
 	}
-	// Show docker block when CLI exists (even if daemon down) — matches discovery.
-	st.Visible = ov.Available
+	// Show docker block when CLI exists or the repo has Compose (so UI can warn
+	// that the environment is stopped / Docker is missing).
+	st.Visible = ov.Available || strings.TrimSpace(ov.ComposeFile) != ""
 	return st
 }
 

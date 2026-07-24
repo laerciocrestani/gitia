@@ -161,11 +161,19 @@ func (h *StatusHub) poll(forcePR bool) {
 
 	h.mu.Lock()
 	for _, st := range results {
-		// Preserve previous PR info if this tick skipped gh.
+		// Preserve previous PR/CI info if this tick skipped gh.
 		if !includePRActive || !samePath(st.Path, active) {
-			if prev, ok := h.cache[st.Path]; ok && prev.HasOpenPR && !st.HasOpenPR && st.Error == "" {
-				st.HasOpenPR = prev.HasOpenPR
-				st.PRTitle = prev.PRTitle
+			if prev, ok := h.cache[st.Path]; ok && st.Error == "" {
+				if prev.HasOpenPR && !st.HasOpenPR {
+					st.HasOpenPR = prev.HasOpenPR
+					st.PRTitle = prev.PRTitle
+				}
+				if prev.CILabel != "" && st.CILabel == "" {
+					st.CIState = prev.CIState
+					st.CILabel = prev.CILabel
+					st.CIFromCache = prev.CIFromCache
+					st.CIHost = prev.CIHost
+				}
 			}
 		}
 		h.cache[st.Path] = st

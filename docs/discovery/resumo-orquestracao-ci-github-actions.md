@@ -109,4 +109,3 @@ O objetivo é **orquestrar, observar e reagir à CI que já existe no GitHub** (
 
 ---
 **Status:** entendimento confirmado (2026-07-24). Arquitetura em [`docs/architecture/ci-github-actions.md`](../architecture/ci-github-actions.md).
-`)

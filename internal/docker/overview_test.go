@@ -43,6 +43,30 @@ func TestOverviewSummaryLine(t *testing.T) {
 	if ov.SummaryLine() != "ok" {
 		t.Fatalf("expected ok, got %q", ov.SummaryLine())
 	}
+
+	ov = &Overview{
+		Available:     true,
+		DaemonRunning: true,
+		ComposeFile:   "/tmp/compose.yaml",
+	}
+	if ov.SummaryLine() != "stopped" {
+		t.Fatalf("expected stopped, got %q", ov.SummaryLine())
+	}
+}
+
+func TestLoadOverview_detectsComposeWhenDaemonDown(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "compose.yaml")
+	if err := os.WriteFile(path, []byte("services: {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Even without a running daemon (or docker binary in CI), ComposeFile must
+	// still be populated so Doctor/UI can warn that the repo has Docker stopped.
+	ov := LoadOverview(dir)
+	if ov.ComposeFile != path {
+		t.Fatalf("ComposeFile=%q want %q", ov.ComposeFile, path)
+	}
 }
 
 func TestHasRunningContainers(t *testing.T) {

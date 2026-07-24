@@ -111,8 +111,8 @@ func MarkPRReady(projectPath string) (*PRStatus, error) {
 	return mapPRStatus(pr), nil
 }
 
-// MergePR merges the current branch PR. method: squash|merge|rebase.
-func MergePR(projectPath, method string) (*PROutcome, error) {
+// ListOpenPRs returns open pull requests for the project (for merge picker).
+func ListOpenPRs(projectPath string) ([]PRStatus, error) {
 	if strings.TrimSpace(projectPath) == "" {
 		return nil, fmt.Errorf("no project open")
 	}
@@ -120,16 +120,63 @@ func MergePR(projectPath, method string) (*PROutcome, error) {
 	if err != nil {
 		return nil, err
 	}
-	view, err := client.ViewCurrent()
+	list, err := client.ListOpenAll()
 	if err != nil {
 		return nil, err
 	}
-	if view == nil {
-		return nil, fmt.Errorf("nenhum PR aberto nesta branch")
+	out := make([]PRStatus, 0, len(list))
+	for i := range list {
+		st := mapPRStatus(&list[i])
+		if st == nil {
+			continue
+		}
+		out = append(out, *st)
 	}
-	if _, err := client.Merge(method); err != nil {
+	return out, nil
+}
+
+// MergePR merges a PR by number. method: squash|merge|rebase.
+// If number <= 0, merges the open PR for the current branch.
+func MergePR(projectPath string, number int, method string) (*PROutcome, error) {
+	if strings.TrimSpace(projectPath) == "" {
+		return nil, fmt.Errorf("no project open")
+	}
+	client, err := prpkg.Open(projectPath)
+	if err != nil {
 		return nil, err
 	}
+
+	var view *prpkg.PRView
+	if number > 0 {
+		list, err := client.ListOpenAll()
+		if err != nil {
+			return nil, err
+		}
+		for i := range list {
+			if list[i].Number == number {
+				view = &list[i]
+				break
+			}
+		}
+		if view == nil {
+			return nil, fmt.Errorf("PR #%d não encontrado entre os PRs abertos", number)
+		}
+		if _, err := client.MergeNumber(number, method); err != nil {
+			return nil, err
+		}
+	} else {
+		view, err = client.ViewCurrent()
+		if err != nil {
+			return nil, err
+		}
+		if view == nil {
+			return nil, fmt.Errorf("nenhum PR aberto nesta branch")
+		}
+		if _, err := client.Merge(method); err != nil {
+			return nil, err
+		}
+	}
+
 	return &PROutcome{
 		URL:   view.URL,
 		Title: view.Title,

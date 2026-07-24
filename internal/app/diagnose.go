@@ -2,12 +2,15 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os/exec"
 	"strings"
 
 	"github.com/laerciocrestani/openbench/internal/ai"
 	"github.com/laerciocrestani/openbench/internal/config"
 	dockerpkg "github.com/laerciocrestani/openbench/internal/docker"
+	"github.com/laerciocrestani/openbench/internal/gha"
 	gitpkg "github.com/laerciocrestani/openbench/internal/git"
 	prpkg "github.com/laerciocrestani/openbench/internal/pr"
 	"github.com/laerciocrestani/openbench/internal/ui"
@@ -106,6 +109,15 @@ func RunDoctor(ctx context.Context, opts DoctorOptions) (*DoctorReport, error) {
 		dockerIssues, dockerRecs := analyzeDockerHealth(dockerOverview)
 		issues = append(issues, dockerIssues...)
 		recommendations = appendUniqueRecommendations(recommendations, dockerRecs)
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+
+	if err := prog.Step("Checking GitHub Actions", func() error {
+		ciIssues, ciRecs := analyzeActionsHealth(opts.WorkDir, snap.Branch)
+		issues = append(issues, ciIssues...)
+		recommendations = appendUniqueRecommendations(recommendations, ciRecs)
 		return nil
 	}); err != nil {
 		return nil, err
@@ -230,7 +242,7 @@ func DiagnoseSyncFailure(base string, syncErr error, prog Progress) {
 			prog.Info(line)
 		}
 	}
-		prog.Info("Para panorama completo: ob doctor")
+	prog.Info("Para panorama completo: ob doctor")
 }
 
 func isFastForwardError(err error) bool {
@@ -345,6 +357,98 @@ func analyzeHealthIssues(snap *gitpkg.HealthSnapshot, currentPR *prpkg.PRView) [
 	return issues
 }
 
+// analyzeActionsHealth checks gh + recent Actions for the current branch.
+func analyzeActionsHealth(workDir, branch string) ([]healthIssue, []string) {
+	var issues []healthIssue
+	var recs []string
+
+	if _, err := exec.LookPath("gh"); err != nil {
+		issues = append(issues, healthIssue{
+			Level:  gitpkg.HealthWarn,
+			Code:   "gh_missing",
+			Title:  "GitHub CLI (gh) não encontrado",
+			Detail: "necessário para Actions, push assistido e PRs",
+		})
+		recs = append(recs, "Instale o GitHub CLI: https://cli.github.com/")
+		return issues, recs
+	}
+
+	client, err := gha.Open(workDir)
+	if err != nil {
+		level := gitpkg.HealthWarn
+		code := "actions_unavailable"
+		title := "GitHub Actions indisponível"
+		detail := err.Error()
+		switch {
+		case errors.Is(err, gha.ErrGhNotInstalled):
+			code = "gh_missing"
+			title = "GitHub CLI (gh) não encontrado"
+			recs = append(recs, "Instale o GitHub CLI: https://cli.github.com/")
+		case errors.Is(err, gha.ErrGhAuth):
+			code = "gh_auth"
+			title = "gh não autenticado"
+			recs = append(recs, "gh auth login")
+		case errors.Is(err, gha.ErrNetwork):
+			code = "actions_offline"
+			title = "Sem rede para consultar Actions"
+			detail = "não foi possível falar com o GitHub — CI pode estar em cache no app"
+		case errors.Is(err, gha.ErrForbidden):
+			code = "actions_forbidden"
+			title = "Sem permissão para Actions"
+			recs = append(recs, "Confira o token gh (scopes repo / actions) ou permissões do repositório")
+		}
+		issues = append(issues, healthIssue{Level: level, Code: code, Title: title, Detail: detail})
+		return issues, recs
+	}
+
+	sum, err := client.LoadSummary(branch)
+	if err != nil {
+		level := gitpkg.HealthWarn
+		code := "actions_unavailable"
+		title := "Falha ao listar Actions"
+		detail := err.Error()
+		switch {
+		case errors.Is(err, gha.ErrGhAuth):
+			code = "gh_auth"
+			title = "gh não autenticado"
+			recs = append(recs, "gh auth login")
+		case errors.Is(err, gha.ErrNetwork):
+			code = "actions_offline"
+			title = "Sem rede para consultar Actions"
+		case errors.Is(err, gha.ErrForbidden):
+			code = "actions_forbidden"
+			title = "Sem permissão para Actions"
+			recs = append(recs, "Confira o token gh (scopes repo / actions) ou permissões do repositório")
+		}
+		issues = append(issues, healthIssue{Level: level, Code: code, Title: title, Detail: detail})
+		return issues, recs
+	}
+
+	host := sum.Host
+	if sum.Enterprise {
+		recs = append(recs, fmt.Sprintf("GitHub Enterprise detectado (%s) — Actions via gh neste host", host))
+	}
+
+	if sum.Fail > 0 {
+		issues = append(issues, healthIssue{
+			Level:  gitpkg.HealthCritical,
+			Code:   "actions_failing",
+			Title:  fmt.Sprintf("CI falhando nesta branch (%s)", sum.Label),
+			Detail: fmt.Sprintf("%d run(s) com falha recente · host %s", sum.Fail, host),
+		})
+		recs = append(recs, "Abra o painel CI / ob ci status e corrija (ob ci fix) ou re-execute flaky jobs")
+	} else if sum.Pending > 0 {
+		issues = append(issues, healthIssue{
+			Level:  gitpkg.HealthWarn,
+			Code:   "actions_pending",
+			Title:  fmt.Sprintf("CI em andamento (%s)", sum.Label),
+			Detail: fmt.Sprintf("%d run(s) pendente(s) · host %s", sum.Pending, host),
+		})
+	}
+
+	return issues, recs
+}
+
 func buildHealthRecommendations(snap *gitpkg.HealthSnapshot, issues []healthIssue, currentPR *prpkg.PRView) []string {
 	if snap == nil {
 		return nil
@@ -407,6 +511,14 @@ func buildHealthRecommendations(snap *gitpkg.HealthSnapshot, issues []healthIssu
 			add("git rebase @{u}  # ou git merge @{u}")
 		case "commits_on_base":
 			add("git checkout -b feature/minha-alteracao")
+		case "gh_missing":
+			add("Instale o GitHub CLI: https://cli.github.com/")
+		case "gh_auth":
+			add("gh auth login")
+		case "actions_failing":
+			add("Abra o painel CI / ob ci status — corrija com ob ci fix ou re-execute jobs flaky")
+		case "actions_forbidden":
+			add("Confira o token gh (scopes repo / actions) ou permissões do repositório")
 		}
 	}
 
@@ -676,6 +788,11 @@ func analyzeDockerHealth(ov *dockerpkg.Overview) ([]healthIssue, []string) {
 	if ov == nil {
 		return nil, nil
 	}
+	// Docker findings only apply when the repo declares a Compose file.
+	if strings.TrimSpace(ov.ComposeFile) == "" {
+		return nil, nil
+	}
+
 	var issues []healthIssue
 	var recs []string
 
@@ -683,8 +800,8 @@ func analyzeDockerHealth(ov *dockerpkg.Overview) ([]healthIssue, []string) {
 		issues = append(issues, healthIssue{
 			Level:  gitpkg.HealthWarn,
 			Code:   "docker_missing",
-			Title:  "Docker CLI não encontrado",
-			Detail: "instale Docker para subir o ambiente local",
+			Title:  "Compose detectado, Docker CLI não encontrado",
+			Detail: ov.ComposeFile,
 		})
 		return issues, recs
 	}
@@ -692,13 +809,10 @@ func analyzeDockerHealth(ov *dockerpkg.Overview) ([]healthIssue, []string) {
 		issues = append(issues, healthIssue{
 			Level:  gitpkg.HealthWarn,
 			Code:   "docker_daemon",
-			Title:  "Docker daemon parado",
+			Title:  "Compose detectado, Docker daemon parado",
 			Detail: "inicie o Docker Desktop ou o serviço docker",
 		})
 		recs = append(recs, "ob docker status")
-		return issues, recs
-	}
-	if ov.ComposeFile == "" {
 		return issues, recs
 	}
 	if !dockerpkg.HasRunningContainers(ov.Containers) {

@@ -18,6 +18,8 @@ import type {
   Prefs,
   ProjectStatus,
   PRPreview,
+  PRStatus,
+  PushPreview,
   SyncResult,
   TimelineView,
 } from "../bindings/github.com/laerciocrestani/openbench/internal/desktop"
@@ -37,6 +39,16 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import {
   Dialog,
   DialogContent,
@@ -72,6 +84,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { useTheme } from "@/components/theme-provider"
+import { CIPanel } from "@/components/ci-panel"
 import { DockerEnvironmentSheet } from "@/components/docker-environment-sheet"
 import { DockerGlobalPanel } from "@/components/docker-global-panel"
 import { DoctorDialog } from "@/components/DoctorDialog"
@@ -97,6 +110,7 @@ import { CommitCalendarCard } from "@/components/CommitCalendarCard"
 import { TimelinePanel, type TimelineConfirmAction } from "@/components/TimelinePanel"
 import { ActivitySidebar, useActivitySidebar } from "@/components/activity-sidebar"
 import {
+  AlertTriangle,
   ArrowDown,
   ArrowDownUp,
   ArrowUp,
@@ -128,6 +142,7 @@ import {
   Stethoscope,
   Trash2,
   Terminal,
+  Workflow,
   X,
 } from "lucide-react"
 
@@ -623,6 +638,30 @@ function ProjectTabs({
                 <span className="size-1.5 rounded-full bg-amber-500" />
               )}
               {s.hasOpenPR && <GitPullRequest className="size-3 text-sky-500" />}
+              {s.ciLabel && (
+                <span
+                  className={
+                    s.ciState === "fail"
+                      ? "text-destructive"
+                      : s.ciState === "pass"
+                        ? "text-emerald-600 dark:text-emerald-400"
+                        : s.ciState === "pending"
+                          ? "text-amber-600 dark:text-amber-400"
+                          : "text-muted-foreground"
+                  }
+                  title={
+                    [
+                      s.ciLabel,
+                      s.ciHost,
+                      s.ciFromCache ? "cache offline" : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")
+                  }
+                >
+                  <Workflow className="size-3" />
+                </span>
+              )}
             </button>
             <Button
               variant="ghost"
@@ -716,10 +755,19 @@ function mergeFastDashboard(prev: Dashboard | null, next: Dashboard): Dashboard 
     (preservedPR && (!preservedPR.state || String(preservedPR.state).toUpperCase().startsWith("OPEN"))
       ? preservedPR
       : undefined)
+  const preserveCI = sameBranch && !next.ciLabel && !!prev.ciLabel
   return {
     ...next,
     openPR,
     docker: dockerStub && prev.docker?.total ? prev.docker : next.docker,
+    ...(preserveCI
+      ? {
+          ciState: prev.ciState,
+          ciLabel: prev.ciLabel,
+          ciFromCache: prev.ciFromCache,
+          ciHost: prev.ciHost,
+        }
+      : {}),
   }
 }
 
@@ -822,6 +870,14 @@ function DashboardView({
   const openPREnabled = canOpenPRInWeb(dash)
   const openPRTitle = openPRDisabledReason(dash)
   const pr = dash.openPR
+  const hasCompose = Boolean(dash.docker.composeFile?.trim())
+  const dockerMissing = hasCompose && !dash.docker.available
+  const dockerDaemonOff =
+    hasCompose && dash.docker.available && !dash.docker.daemonRunning
+  const dockerComposeStopped =
+    hasCompose && dash.docker.daemonRunning && dash.docker.running === 0
+  const dockerNeedsAttention =
+    dockerMissing || dockerDaemonOff || dockerComposeStopped
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
@@ -849,9 +905,25 @@ function DashboardView({
                   </Badge>
                 ) : (
                   <>
-                    <Badge variant="outline" className="ml-1 font-normal">
+                    <Badge
+                      variant="outline"
+                      className={cn(
+                        "ml-1 font-normal",
+                        dockerNeedsAttention &&
+                          "border-amber-500/50 text-amber-700 dark:text-amber-400",
+                      )}
+                    >
                       {dash.docker.running}/{dash.docker.total}
                     </Badge>
+                    {dockerNeedsAttention ? (
+                      <Badge
+                        variant="outline"
+                        className="ml-1 gap-1 border-amber-500/50 font-normal text-amber-700 dark:text-amber-400"
+                      >
+                        <AlertTriangle className="size-3" />
+                        parado
+                      </Badge>
+                    ) : null}
                     <span className="ml-auto text-[11px] font-normal text-muted-foreground">
                       containers →
                     </span>
@@ -873,7 +945,36 @@ function DashboardView({
               <p className="text-xs text-muted-foreground">Consultando Docker / Compose…</p>
             ) : (
               <>
-                <p className="truncate text-xs text-muted-foreground">{dash.docker.summary}</p>
+                {dockerMissing ? (
+                  <Alert className="border-amber-500/40 bg-amber-500/10 text-amber-950 dark:text-amber-100">
+                    <AlertTriangle className="size-4" />
+                    <AlertDescription className="text-xs leading-relaxed">
+                      Compose detectado, Docker CLI não encontrado. Instale o Docker para subir o
+                      ambiente.
+                    </AlertDescription>
+                  </Alert>
+                ) : null}
+                {dockerDaemonOff ? (
+                  <Alert className="border-amber-500/40 bg-amber-500/10 text-amber-950 dark:text-amber-100">
+                    <AlertTriangle className="size-4" />
+                    <AlertDescription className="text-xs leading-relaxed">
+                      Compose detectado, Docker daemon parado. Inicie o Docker para subir o
+                      ambiente.
+                    </AlertDescription>
+                  </Alert>
+                ) : null}
+                {dockerComposeStopped ? (
+                  <Alert className="border-amber-500/40 bg-amber-500/10 text-amber-950 dark:text-amber-100">
+                    <AlertTriangle className="size-4" />
+                    <AlertDescription className="text-xs leading-relaxed">
+                      Compose detectado, containers parados. Use <span className="font-medium">Up</span>{" "}
+                      para subir o ambiente.
+                    </AlertDescription>
+                  </Alert>
+                ) : null}
+                {!dockerNeedsAttention ? (
+                  <p className="truncate text-xs text-muted-foreground">{dash.docker.summary}</p>
+                ) : null}
                 <div className="flex flex-wrap gap-1.5">
                   <Button size="xs" onClick={onDockerUp} disabled={busy}>
                     <Play />
@@ -978,6 +1079,25 @@ function DashboardView({
                 }
                 className="text-xs"
               />
+              {dash.ciLabel && (
+                <Badge
+                  variant={
+                    dash.ciState === "fail"
+                      ? "destructive"
+                      : dash.ciState === "pass"
+                        ? "secondary"
+                        : "outline"
+                  }
+                  title={[dash.ciHost, dash.ciFromCache ? "cache offline" : ""]
+                    .filter(Boolean)
+                    .join(" · ")}
+                  className="gap-1"
+                >
+                  <Workflow className="size-3" />
+                  {dash.ciLabel}
+                  {dash.ciFromCache ? " · off" : ""}
+                </Badge>
+              )}
               <Button
                 size="sm"
                 variant="outline"
@@ -1297,6 +1417,10 @@ function App() {
   const [recreateOpen, setRecreateOpen] = useState(false)
   const [recreateService, setRecreateService] = useState("")
   const [dockerEnvOpen, setDockerEnvOpen] = useState(false)
+  const [ciOpen, setCiOpen] = useState(false)
+  const [pushConfirmOpen, setPushConfirmOpen] = useState(false)
+  const [pushPreview, setPushPreview] = useState<PushPreview | null>(null)
+  const [ciWatchMsg, setCiWatchMsg] = useState<string | null>(null)
   const [dockerShellReq, setDockerShellReq] = useState<DockerShellRequest | null>(null)
 
   // Sync / Hygiene
@@ -1316,6 +1440,9 @@ function App() {
   const [prManageBusy, setPrManageBusy] = useState(false)
   const [mergeDialogOpen, setMergeDialogOpen] = useState(false)
   const [mergingMethod, setMergingMethod] = useState<string | null>(null)
+  const [mergePRs, setMergePRs] = useState<PRStatus[]>([])
+  const [mergePRsLoading, setMergePRsLoading] = useState(false)
+  const [selectedMergePR, setSelectedMergePR] = useState<number>(0)
 
   // Commit calendar
   const [commitActivity, setCommitActivity] = useState<CommitActivityView | null>(null)
@@ -1893,12 +2020,51 @@ function App() {
     }
   }
 
+  const openMergeDialog = async (preferredNumber = 0) => {
+    setMergeDialogOpen(true)
+    setMergePRsLoading(true)
+    setError(null)
+    try {
+      const list = (await AppService.ListOpenPRs()) ?? []
+      setMergePRs(list)
+      const current = dash?.openPR?.number ?? 0
+      const preferred =
+        preferredNumber > 0 && list.some((p) => p.number === preferredNumber)
+          ? preferredNumber
+          : 0
+      const fallback =
+        current > 0 && list.some((p) => p.number === current)
+          ? current
+          : (list[0]?.number ?? 0)
+      setSelectedMergePR(preferred || fallback)
+    } catch (e) {
+      setMergePRs([])
+      setSelectedMergePR(0)
+      setError(errText(e))
+    } finally {
+      setMergePRsLoading(false)
+    }
+  }
+
   const mergePR = async (method: string) => {
+    if (selectedMergePR <= 0) {
+      setError("Selecione um PR para mergear")
+      return
+    }
+    const selected = mergePRs.find((p) => p.number === selectedMergePR)
+    if (selected?.isDraft) {
+      setError("Marque Ready for review antes de mergear")
+      return
+    }
+    if (String(selected?.mergeable || "").toUpperCase() === "CONFLICTING") {
+      setError("PR com conflitos — resolva antes de mergear")
+      return
+    }
     setPrManageBusy(true)
     setMergingMethod(method)
     setError(null)
     try {
-      await AppService.MergePR(method)
+      await AppService.MergePR(selectedMergePR, method)
       setMergeDialogOpen(false)
       // Clear immediately — gh may still return the MERGED PR for a moment.
       setDash((prev) => (prev ? { ...prev, openPR: undefined } : prev))
@@ -2008,6 +2174,25 @@ function App() {
     await startCommitAction("commit")
   }
 
+  const doPushOnly = async () => {
+    setBusy(true)
+    setError(null)
+    setCiWatchMsg("Acompanhando GitHub Actions…")
+    try {
+      const out = await AppService.Push()
+      if (out?.message) setCiWatchMsg(out.message)
+      setPushConfirmOpen(false)
+      setPushPreview(null)
+      await refresh()
+      setCiOpen(true)
+    } catch (e) {
+      setError(errText(e))
+      setCiWatchMsg(null)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const runPushOnly = async () => {
     if (!dash) return
     if (doctorBlocksAction(doctorReport, "push")) {
@@ -2019,11 +2204,16 @@ function App() {
     setBusy(true)
     setError(null)
     try {
-      await AppService.Push()
-      await refresh()
+      const prev = await AppService.PreviewPush()
+      if (prev?.defaultBranchWarning) {
+        setPushPreview(prev)
+        setPushConfirmOpen(true)
+        setBusy(false)
+        return
+      }
+      await doPushOnly()
     } catch (e) {
       setError(errText(e))
-    } finally {
       setBusy(false)
     }
   }
@@ -2040,6 +2230,13 @@ function App() {
   const pushDoctorGate = doctorGate(doctorReport, "push")
   const prDoctorGate = doctorGate(doctorReport, "pr")
   const mergeDoctorGate = doctorGate(doctorReport, "merge")
+  const selectedMergePRView = mergePRs.find((p) => p.number === selectedMergePR)
+  const mergeActionDisabled =
+    prManageBusy ||
+    mergeDoctorGate.blocked ||
+    mergePRsLoading ||
+    selectedMergePR <= 0 ||
+    Boolean(selectedMergePRView?.isDraft)
 
   const confirmNewBranch = async () => {
     const name = newBranchName.trim()
@@ -2063,9 +2260,12 @@ function App() {
     setError(null)
     try {
       if (commitAction === "push" || commitAction === "branch-commit-push") {
-        await AppService.ConfirmCommitAndPush(commitMessage)
+        setCiWatchMsg("Acompanhando GitHub Actions…")
+        const out = await AppService.ConfirmCommitAndPush(commitMessage)
+        if (out?.message) setCiWatchMsg(out.message)
         setCommitOpen(false)
         await refresh()
+        setCiOpen(true)
       } else if (commitAction === "pr") {
         await AppService.ConfirmCommit(commitMessage)
         setCommitOpen(false)
@@ -2078,6 +2278,7 @@ function App() {
       }
     } catch (e) {
       setError(errText(e))
+      setCiWatchMsg(null)
     } finally {
       setCommitBusy(false)
     }
@@ -2570,11 +2771,26 @@ function App() {
       }
     })
 
+    const offCIWatch = Events.On("ci:watch", (ev) => {
+      const raw = wailsEventData<{ message?: string; phase?: string }>(ev)
+      if (raw?.message) {
+        setCiWatchMsg(
+          raw.phase && raw.phase !== "done"
+            ? `${raw.message}`
+            : raw.message,
+        )
+      }
+      if (raw?.phase === "done" || raw?.phase === "timeout") {
+        void actionsRef.current.refresh()
+      }
+    })
+
     return () => {
       offTray()
       offStatus()
       offDashboard()
       offUpdatePrompt()
+      offCIWatch()
     }
   }, [applyDashboard])
 
@@ -2599,6 +2815,7 @@ function App() {
                 onLoadMore={loadMoreTimeline}
                 onConfirmAction={handleTimelineConfirm}
                 onCheckoutBranch={handleTimelineCheckout}
+                onMergePR={(number) => void openMergeDialog(number)}
                 actionBusy={timelineActionBusy}
                 compact
                 className="h-full"
@@ -2696,6 +2913,32 @@ function App() {
               <Button variant="ghost" size="xs" onClick={() => setError(null)}>
                 Fechar
               </Button>
+            </AlertDescription>
+          </Alert>
+        )}
+        {ciWatchMsg && (
+          <Alert className="shrink-0">
+            <AlertDescription className="flex items-center justify-between gap-3">
+              <span className="truncate text-xs">
+                <Workflow className="mr-1 inline size-3.5" />
+                {ciWatchMsg}
+              </span>
+              <div className="flex shrink-0 gap-1">
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  onClick={() => setCiOpen(true)}
+                >
+                  CI
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  onClick={() => setCiWatchMsg(null)}
+                >
+                  Fechar
+                </Button>
+              </div>
             </AlertDescription>
           </Alert>
         )}
@@ -2962,13 +3205,15 @@ function App() {
               <Button
                 size="sm"
                 variant="default"
-                onClick={() => setMergeDialogOpen(true)}
-                disabled={busy || prManageBusy || Boolean(prMergeBlocked(dash))}
+                onClick={() => void openMergeDialog()}
+                disabled={busy || prManageBusy || !dash?.hasGH}
                 className={cn(suggestedStep === "merge" && "next-step-pulse")}
                 title={
                   suggestedStep === "merge"
                     ? nextStepTitle("merge")
-                    : (prMergeBlocked(dash) ?? "Mergear PR no GitHub")
+                    : !dash?.hasGH
+                      ? "GitHub CLI necessário para mergear PR"
+                      : (prMergeBlocked(dash) ?? "Mergear PR no GitHub")
                 }
               >
                 {prManageBusy ? <Loader2 className="animate-spin" /> : <GitMerge />}
@@ -3024,6 +3269,16 @@ function App() {
                     {suggestedStep === "hygiene" ? "próximo" : hygieneBadgeLabel(dash)}
                   </Badge>
                 )}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setCiOpen(true)}
+                disabled={busy}
+                title="GitHub Actions — runs da branch atual"
+              >
+                <Workflow />
+                CI
               </Button>
               <Button
                 size="icon-sm"
@@ -3566,6 +3821,15 @@ function App() {
                   </AlertDescription>
                 </Alert>
               )}
+              {(commitAction === "push" ||
+                commitAction === "branch-commit-push") &&
+                commitPreview?.defaultBranchWarning && (
+                  <Alert variant="destructive">
+                    <AlertDescription className="text-xs">
+                      {commitPreview.defaultBranchWarning}
+                    </AlertDescription>
+                  </Alert>
+                )}
             </div>
           )}
           <DialogFooter>
@@ -3589,6 +3853,37 @@ function App() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={pushConfirmOpen} onOpenChange={setPushConfirmOpen}>
+        <AlertDialogContent className="sm:max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirmar push</AlertDialogTitle>
+            <AlertDialogDescription className="text-left text-xs">
+              {pushPreview?.defaultBranchWarning ||
+                "O push vai disparar CI no GitHub Actions."}
+              {pushPreview?.branch ? (
+                <span className="mt-2 block font-mono">
+                  branch {pushPreview.branch}
+                  {pushPreview.ahead > 0 ? ` · ↑${pushPreview.ahead}` : ""}
+                </span>
+              ) : null}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={busy}
+              onClick={(e) => {
+                e.preventDefault()
+                void doPushOnly()
+              }}
+            >
+              {busy ? <Loader2 className="size-3.5 animate-spin" /> : null}
+              Confirmar push
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* New branch before commit */}
       <Dialog open={newBranchOpen} onOpenChange={setNewBranchOpen}>
@@ -3639,15 +3934,23 @@ function App() {
       </Dialog>
 
       {/* PR dialog */}
-      <Dialog open={mergeDialogOpen} onOpenChange={setMergeDialogOpen}>
+      <Dialog
+        open={mergeDialogOpen}
+        onOpenChange={(open) => {
+          setMergeDialogOpen(open)
+          if (!open) {
+            setMergingMethod(null)
+          }
+        }}
+      >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <GitMerge className="size-4" />
               Merge PR
-              {dash?.openPR?.number ? (
+              {selectedMergePR > 0 ? (
                 <Badge variant="outline" className="font-normal">
-                  #{dash.openPR.number}
+                  #{selectedMergePR}
                 </Badge>
               ) : null}
             </DialogTitle>
@@ -3657,52 +3960,108 @@ function App() {
             action="merge"
             onOpenDoctor={openDoctorFromGate}
           />
-          <p className="text-sm text-muted-foreground">
-            Escolha o método de merge no GitHub.
-          </p>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              className="border-teal-200/80 bg-teal-50 text-teal-800 hover:bg-teal-100 hover:text-teal-900 dark:border-teal-800/60 dark:bg-teal-950/40 dark:text-teal-200 dark:hover:bg-teal-950/70"
-              disabled={prManageBusy || mergeDoctorGate.blocked}
-              onClick={() => void mergePR("squash")}
-            >
-              {mergingMethod === "squash" ? (
-                <Loader2 className="animate-spin" />
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="merge-pr-select">Pull request</Label>
+              {mergePRsLoading ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="size-4 animate-spin" />
+                  Carregando PRs abertos…
+                </div>
+              ) : mergePRs.length === 0 ? (
+                <Alert>
+                  <AlertDescription className="text-xs">
+                    Nenhum PR aberto neste repositório.
+                  </AlertDescription>
+                </Alert>
               ) : (
-                <Layers />
+                <Select
+                  value={selectedMergePR > 0 ? String(selectedMergePR) : undefined}
+                  onValueChange={(v) => setSelectedMergePR(Number(v ?? 0) || 0)}
+                  disabled={prManageBusy}
+                >
+                  <SelectTrigger id="merge-pr-select" className="w-full">
+                    <SelectValue placeholder="Selecione o PR" />
+                  </SelectTrigger>
+                  <SelectContent className="w-(--anchor-width)">
+                    {mergePRs.map((pr) => (
+                      <SelectItem key={pr.number} value={String(pr.number)}>
+                        <span className="flex min-w-0 flex-col gap-0.5 text-left">
+                          <span className="truncate font-medium">
+                            #{pr.number} · {pr.title}
+                          </span>
+                          <span className="truncate text-[11px] text-muted-foreground">
+                            {pr.headRefName || "sem branch"}
+                            {pr.isDraft ? " · draft" : ""}
+                            {String(pr.mergeable || "").toUpperCase() === "CONFLICTING"
+                              ? " · conflitos"
+                              : ""}
+                          </span>
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               )}
-              Squash
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              className="border-sky-200/80 bg-sky-50 text-sky-800 hover:bg-sky-100 hover:text-sky-900 dark:border-sky-800/60 dark:bg-sky-950/40 dark:text-sky-200 dark:hover:bg-sky-950/70"
-              disabled={prManageBusy || mergeDoctorGate.blocked}
-              onClick={() => void mergePR("merge")}
-            >
-              {mergingMethod === "merge" ? (
-                <Loader2 className="animate-spin" />
-              ) : (
-                <GitMerge />
-              )}
-              Merge
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              className="border-amber-200/80 bg-amber-50 text-amber-900 hover:bg-amber-100 hover:text-amber-950 dark:border-amber-800/60 dark:bg-amber-950/40 dark:text-amber-200 dark:hover:bg-amber-950/70"
-              disabled={prManageBusy || mergeDoctorGate.blocked}
-              onClick={() => void mergePR("rebase")}
-            >
-              {mergingMethod === "rebase" ? (
-                <Loader2 className="animate-spin" />
-              ) : (
-                <GitBranch />
-              )}
-              Rebase
-            </Button>
+            </div>
+            {selectedMergePRView?.isDraft ? (
+              <Alert className="border-amber-500/40 bg-amber-500/10 text-amber-950 dark:text-amber-100">
+                <AlertTriangle className="size-4" />
+                <AlertDescription className="text-xs leading-relaxed">
+                  PR em draft — marque Ready for review antes de mergear.
+                </AlertDescription>
+              </Alert>
+            ) : null}
+            <div className="flex flex-col gap-1.5">
+              <Label>Método de merge</Label>
+              <p className="text-xs text-muted-foreground">
+                Escolha a PR e depois a ação no GitHub.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="border-teal-200/80 bg-teal-50 text-teal-800 hover:bg-teal-100 hover:text-teal-900 dark:border-teal-800/60 dark:bg-teal-950/40 dark:text-teal-200 dark:hover:bg-teal-950/70"
+                  disabled={mergeActionDisabled}
+                  onClick={() => void mergePR("squash")}
+                >
+                  {mergingMethod === "squash" ? (
+                    <Loader2 className="animate-spin" />
+                  ) : (
+                    <Layers />
+                  )}
+                  Squash
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="border-sky-200/80 bg-sky-50 text-sky-800 hover:bg-sky-100 hover:text-sky-900 dark:border-sky-800/60 dark:bg-sky-950/40 dark:text-sky-200 dark:hover:bg-sky-950/70"
+                  disabled={mergeActionDisabled}
+                  onClick={() => void mergePR("merge")}
+                >
+                  {mergingMethod === "merge" ? (
+                    <Loader2 className="animate-spin" />
+                  ) : (
+                    <GitMerge />
+                  )}
+                  Merge
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="border-amber-200/80 bg-amber-50 text-amber-900 hover:bg-amber-100 hover:text-amber-950 dark:border-amber-800/60 dark:bg-amber-950/40 dark:text-amber-200 dark:hover:bg-amber-950/70"
+                  disabled={mergeActionDisabled}
+                  onClick={() => void mergePR("rebase")}
+                >
+                  {mergingMethod === "rebase" ? (
+                    <Loader2 className="animate-spin" />
+                  ) : (
+                    <GitBranch />
+                  )}
+                  Rebase
+                </Button>
+              </div>
+            </div>
           </div>
           <DialogFooter>
             <Button
@@ -4255,6 +4614,10 @@ function App() {
         </DialogContent>
       </Dialog>
 
+      {dash ? (
+        <CIPanel open={ciOpen} onOpenChange={setCiOpen} projectPath={dash.path} />
+      ) : null}
+
       <DockerEnvironmentSheet
         open={dockerEnvOpen}
         onOpenChange={setDockerEnvOpen}
@@ -4331,6 +4694,10 @@ function App() {
           void startCommit()
         }}
         onOpenFix={() => void openDoctorFix()}
+        onDockerUp={() => {
+          setDoctorOpen(false)
+          void dockerAction(() => AppService.DockerUp(false))
+        }}
       />
 
       <DoctorFixDialog

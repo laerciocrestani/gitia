@@ -91,6 +91,10 @@ func (c *geminiClient) ExplainHealth(ctx context.Context, facts, lang string) (*
 	return explainHealthWithRetry(ctx, facts, lang, c.generate)
 }
 
+func (c *geminiClient) SuggestCIFix(ctx context.Context, logWindow, lang, branch string) (*CIFixSuggestion, error) {
+	return suggestCIFixWithRetry(ctx, logWindow, lang, branch, c.generate)
+}
+
 func (c *geminiClient) generate(ctx context.Context, prompt, label string) (string, error) {
 	return withModelFallback(ctx, c.cfg, c.cfg.Model, func(model string) (string, error) {
 		return callWithRetry(ctx, "Gemini", func() (string, error) {

@@ -14,15 +14,15 @@ import (
 
 // AppService exposes desktop bindings to the frontend.
 type AppService struct {
-	mu              sync.RWMutex
-	app             *application.App
-	projectPath     string
-	trayRefresh     func()
-	hub             *desktop.StatusHub
-	terms           map[string]*termEntry
-	chatCancel      context.CancelFunc
-	pendingTool     *pendingChatTool
-	repoWatch       *desktop.RepoWatcher
+	mu               sync.RWMutex
+	app              *application.App
+	projectPath      string
+	trayRefresh      func()
+	hub              *desktop.StatusHub
+	terms            map[string]*termEntry
+	chatCancel       context.CancelFunc
+	pendingTool      *pendingChatTool
+	repoWatch        *desktop.RepoWatcher
 	doctorFixSession *desktop.DoctorFixSession
 }
 
@@ -417,9 +417,15 @@ func (s *AppService) MarkPRReady() (*desktop.PRStatus, error) {
 	return desktop.MarkPRReady(s.currentPath())
 }
 
-// MergePR merges the open PR (method: squash|merge|rebase).
-func (s *AppService) MergePR(method string) (*desktop.PROutcome, error) {
-	out, err := desktop.MergePR(s.currentPath(), method)
+// ListOpenPRs returns open pull requests for the merge picker.
+func (s *AppService) ListOpenPRs() ([]desktop.PRStatus, error) {
+	return desktop.ListOpenPRs(s.currentPath())
+}
+
+// MergePR merges a PR by number (method: squash|merge|rebase).
+// Pass number <= 0 to merge the open PR on the current branch.
+func (s *AppService) MergePR(number int, method string) (*desktop.PROutcome, error) {
+	out, err := desktop.MergePR(s.currentPath(), number, method)
 	if err != nil {
 		return nil, err
 	}
@@ -534,24 +540,37 @@ func (s *AppService) ConfirmCommit(message string) (*desktop.CommitOutcome, erro
 }
 
 // ConfirmCommitAndPush commits with the reviewed message and pushes to origin.
+// CI watch runs in background and emits ci:watch events.
 func (s *AppService) ConfirmCommitAndPush(message string) (*desktop.CommitOutcome, error) {
-	out, err := desktop.ConfirmCommitAndPush(context.Background(), s.currentPath(), message)
+	out, err := desktop.ConfirmCommitAndPush(context.Background(), s.currentPath(), message, false, nil)
 	if err != nil {
 		return nil, err
 	}
 	s.syncHubFromPrefs()
 	s.refreshTray()
+	if out != nil {
+		s.startCIWatch(out.Path, out.Branch, "")
+	}
 	return out, nil
 }
 
+// PreviewPush returns default-branch warning and ahead info without pushing.
+func (s *AppService) PreviewPush() (*desktop.PushPreview, error) {
+	return desktop.PreviewPush(s.currentPath())
+}
+
 // Push pushes existing commits on the current branch (no new commit / no AI).
+// CI watch runs in background and emits ci:watch events.
 func (s *AppService) Push() (*desktop.PushOutcome, error) {
-	out, err := desktop.PushCurrentBranch(s.currentPath())
+	out, err := desktop.PushCurrentBranch(s.currentPath(), false, nil)
 	if err != nil {
 		return nil, err
 	}
 	s.syncHubFromPrefs()
 	s.refreshTray()
+	if out != nil {
+		s.startCIWatch(out.Path, out.Branch, out.HeadSHA)
+	}
 	return out, nil
 }
 

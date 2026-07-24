@@ -254,12 +254,12 @@ Meta de produto = conjunto completo de RFs. Entrega interna em fatias **testáve
 
 | Fatia | Entrega | Aceite |
 |-------|---------|--------|
-| **A — Observe** | `internal/gha` list/view/jobs + painel + `ob ci status/view` + usage best-effort | Ver todos os runs do branch/SHA; filtro failed; usage com estado |
-| **B — Logs** | fetch sob demanda + `redact` + log viewer + `ob ci logs` | Log grande sob demanda; secrets óbvios redigidos |
-| **C — React** | rerun + dispatch + confirms + avisos de minutos | Mutação só com confirm; custo visível |
-| **D — Orchestrate** | pós-push watch + default-branch warning no push | Push main alerta; CI aparece sem abrir browser |
-| **E — Fix IA** | failure window → patch preview → confirm commit/push → watch | Usuário só confirma; novo run (não re-run) após fix |
-| **F — Harden** | GHE smoke, StatusHub badge, Doctor, cache offline do último summary | Enterprise host; offline falha clara; badge no dashboard |
+| **A — Observe** | `internal/gha` list/view/jobs + painel + `ob ci status/view` + usage best-effort | ✅ `internal/gha` + `ob ci status\|view\|usage` + painel CI (desktop) + `ActionsUsage` |
+| **B — Logs** | fetch sob demanda + `redact` + log viewer + `ob ci logs` | ✅ `internal/redact` + `gha.FetchLog` + `ob ci logs` + viewer no painel CI |
+| **C — React** | rerun + dispatch + confirms + avisos de minutos | ✅ Preview/Confirm + `ob ci rerun\|dispatch\|workflows` + dialogs no painel |
+| **D — Orchestrate** | pós-push watch + default-branch warning no push | ✅ gate default branch + `WatchAfterPush` + evento `ci:watch` |
+| **E — Fix IA** | failure window → patch preview → confirm commit/push → watch | ✅ `SuggestCIFix` + `ob ci fix` + botão Corrigir com IA |
+| **F — Harden** | GHE smoke, StatusHub badge, Doctor, cache offline do último summary | ✅ `gha.ResolveHost` / Enterprise · `LoadSummary` + cache `ci-cache/` · badge StatusHub/Dashboard · Doctor Actions |
 
 Ordem: A→B→C→D→E→F. “Nascer completo” = A–F mergeados e usáveis; polish visual depois.
 
@@ -307,5 +307,4 @@ docs/architecture/
 
 ---
 
-**Próximo passo após aceite desta arquitetura:** implementar fatia **A (Observe)** — `internal/gha` + painel mínimo + `ob ci status`.
-`)
+**Status:** fatias **A–F** entregues. Polish visual / UX refinements depois do merge.

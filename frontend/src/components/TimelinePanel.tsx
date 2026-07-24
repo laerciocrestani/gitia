@@ -150,6 +150,7 @@ export function TimelinePanel({
   onLoadMore,
   onConfirmAction,
   onCheckoutBranch,
+  onMergePR,
   actionBusy,
   className,
   compact,
@@ -159,6 +160,7 @@ export function TimelinePanel({
   onLoadMore: () => void
   onConfirmAction: (action: TimelineConfirmAction) => Promise<void> | void
   onCheckoutBranch: (name: string) => Promise<void> | void
+  onMergePR?: (number: number) => void
   actionBusy?: boolean
   className?: string
   compact?: boolean
@@ -407,48 +409,16 @@ export function TimelinePanel({
               </>
             ) : null}
 
-            {isPROpen && prNumber > 0 ? (
+            {isPROpen && prNumber > 0 && onMergePR ? (
               <>
                 <DropdownMenuSeparator />
-                <DropdownMenuLabel>Merge PR #{prNumber}</DropdownMenuLabel>
                 <DropdownMenuItem
-                  onClick={() =>
-                    setPending({
-                      type: "merge-pr",
-                      number: prNumber,
-                      method: "squash",
-                      title: menuEvent?.title ?? "",
-                    })
-                  }
+                  onClick={() => {
+                    onMergePR(prNumber)
+                  }}
                 >
                   <GitMerge className="size-3.5" />
-                  Merge squash
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() =>
-                    setPending({
-                      type: "merge-pr",
-                      number: prNumber,
-                      method: "merge",
-                      title: menuEvent?.title ?? "",
-                    })
-                  }
-                >
-                  <GitMerge className="size-3.5" />
-                  Merge commit
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() =>
-                    setPending({
-                      type: "merge-pr",
-                      number: prNumber,
-                      method: "rebase",
-                      title: menuEvent?.title ?? "",
-                    })
-                  }
-                >
-                  <GitMerge className="size-3.5" />
-                  Merge rebase
+                  Merge PR #{prNumber}…
                 </DropdownMenuItem>
               </>
             ) : null}

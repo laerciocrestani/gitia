@@ -20,6 +20,7 @@ type PRView struct {
 	State          string
 	Number         int
 	IsDraft        bool
+	HeadRefName    string
 	Mergeable      string // MERGEABLE, CONFLICTING, UNKNOWN
 	ReviewDecision string
 	ChecksPass     int
@@ -97,10 +98,30 @@ func (c *Client) OpenInBrowser() (*PRView, error) {
 
 // ListOpen returns all open pull requests keyed by head branch name.
 func (c *Client) ListOpen() (map[string]PRView, error) {
-	out, err := c.run("pr", "list", "--state", "open", "--json", "title,url,state,number,isDraft,headRefName")
+	list, err := c.ListOpenAll()
+	if err != nil {
+		return nil, err
+	}
+	byHead := make(map[string]PRView, len(list))
+	for _, item := range list {
+		if item.HeadRefName == "" {
+			continue
+		}
+		byHead[item.HeadRefName] = item
+	}
+	return byHead, nil
+}
+
+// ListOpenAll returns open pull requests (newest first).
+func (c *Client) ListOpenAll() ([]PRView, error) {
+	out, err := c.run(
+		"pr", "list",
+		"--state", "open",
+		"--json", "title,url,state,number,isDraft,headRefName,mergeable",
+	)
 	if err != nil {
 		if isPRNotFound(err) {
-			return map[string]PRView{}, nil
+			return nil, nil
 		}
 		return nil, err
 	}
@@ -112,25 +133,25 @@ func (c *Client) ListOpen() (map[string]PRView, error) {
 		Number      int    `json:"number"`
 		IsDraft     bool   `json:"isDraft"`
 		HeadRefName string `json:"headRefName"`
+		Mergeable   string `json:"mergeable"`
 	}
 	if err := json.Unmarshal([]byte(out), &raw); err != nil {
 		return nil, err
 	}
 
-	byHead := make(map[string]PRView, len(raw))
+	list := make([]PRView, 0, len(raw))
 	for _, item := range raw {
-		if item.HeadRefName == "" {
-			continue
-		}
-		byHead[item.HeadRefName] = PRView{
-			URL:     item.URL,
-			Title:   item.Title,
-			State:   item.State,
-			Number:  item.Number,
-			IsDraft: item.IsDraft,
-		}
+		list = append(list, PRView{
+			URL:         item.URL,
+			Title:       item.Title,
+			State:       item.State,
+			Number:      item.Number,
+			IsDraft:     item.IsDraft,
+			HeadRefName: item.HeadRefName,
+			Mergeable:   item.Mergeable,
+		})
 	}
-	return byHead, nil
+	return list, nil
 }
 
 func (c *Client) ViewCurrent() (*PRView, error) {
@@ -143,7 +164,7 @@ func (c *Client) ViewCurrentMeta() (*PRView, error) {
 }
 
 func (c *Client) viewCurrent(withChecks bool) (*PRView, error) {
-	out, err := c.run("pr", "view", "--json", "title,url,state,number,isDraft,mergeable,reviewDecision")
+	out, err := c.run("pr", "view", "--json", "title,url,state,number,isDraft,headRefName,mergeable,reviewDecision")
 	if err != nil {
 		if isPRNotFound(err) {
 			return nil, nil
@@ -157,6 +178,7 @@ func (c *Client) viewCurrent(withChecks bool) (*PRView, error) {
 		State          string `json:"state"`
 		Number         int    `json:"number"`
 		IsDraft        bool   `json:"isDraft"`
+		HeadRefName    string `json:"headRefName"`
 		Mergeable      string `json:"mergeable"`
 		ReviewDecision string `json:"reviewDecision"`
 	}
@@ -170,6 +192,7 @@ func (c *Client) viewCurrent(withChecks bool) (*PRView, error) {
 		State:          raw.State,
 		Number:         raw.Number,
 		IsDraft:        raw.IsDraft,
+		HeadRefName:    raw.HeadRefName,
 		Mergeable:      raw.Mergeable,
 		ReviewDecision: raw.ReviewDecision,
 	}

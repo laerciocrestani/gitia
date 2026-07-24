@@ -3,9 +3,12 @@ package main
 import (
 	"fmt"
 	"os"
+	"strconv"
+	"strings"
 
 	"github.com/laerciocrestani/openbench/internal/app"
 	"github.com/laerciocrestani/openbench/internal/config"
+	"github.com/laerciocrestani/openbench/internal/desktop"
 	gitpkg "github.com/laerciocrestani/openbench/internal/git"
 	"github.com/laerciocrestani/openbench/internal/setup"
 	"github.com/laerciocrestani/openbench/internal/tui"
@@ -439,7 +442,149 @@ func main() {
 	dockerCmd.PersistentFlags().StringVarP(&dockerComposeFile, "file", "f", "", "caminho do compose file")
 	dockerCmd.AddCommand(dockerStatusCmd, dockerPSCmd, dockerUpCmd, dockerDownCmd, dockerStopCmd, dockerStartCmd, dockerRecreateCmd, dockerExecCmd, dockerLogsCmd, dockerShCmd, dockerPresetCmd, dockerKitCmd)
 
-	root.AddCommand(installCmd, updateCmd, syncCmd, hygieneCmd, versionCmd, statusCmd, commitCmd, pushCmd, prCmd, configCmd, pricingCmd, reportCmd, uiCmd, doctorCmd, dockerCmd)
+	var (
+		ciFailedOnly  bool
+		ciLimit       int
+		ciBranch      string
+		ciAllBranches bool
+		ciJobID       int64
+		ciLogFailed   bool
+		ciYes         bool
+		ciRef         string
+		ciFields      []string
+	)
+	ciCmd := &cobra.Command{
+		Use:   "ci",
+		Short: "GitHub Actions — observar runs do repositório atual",
+	}
+	ciStatusCmd := &cobra.Command{
+		Use:   "status",
+		Short: "Lista workflow runs (branch atual por padrão)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return app.RunCIStatus(app.CIStatusOptions{
+				FailedOnly:  ciFailedOnly,
+				Limit:       ciLimit,
+				Branch:      ciBranch,
+				AllBranches: ciAllBranches,
+			})
+		},
+	}
+	ciStatusCmd.Flags().BoolVar(&ciFailedOnly, "failed", false, "somente runs falhos")
+	ciStatusCmd.Flags().IntVar(&ciLimit, "limit", 20, "máximo de runs (até 50)")
+	ciStatusCmd.Flags().StringVar(&ciBranch, "branch", "", "filtrar branch (default: branch atual)")
+	ciStatusCmd.Flags().BoolVar(&ciAllBranches, "all", false, "todas as branches")
+	ciViewCmd := &cobra.Command{
+		Use:   "view <run-id>",
+		Short: "Detalha um workflow run (jobs/steps)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, err := strconv.ParseInt(args[0], 10, 64)
+			if err != nil {
+				return fmt.Errorf("run-id inválido: %s", args[0])
+			}
+			return app.RunCIView(id)
+		},
+	}
+	ciUsageCmd := &cobra.Command{
+		Use:   "usage",
+		Short: "Mostra evidência de minutos/uso de Actions",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return app.RunCIUsage()
+		},
+	}
+	ciLogsCmd := &cobra.Command{
+		Use:   "logs <run-id>",
+		Short: "Baixa log do run sob demanda (sempre redigido)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, err := strconv.ParseInt(args[0], 10, 64)
+			if err != nil {
+				return fmt.Errorf("run-id inválido: %s", args[0])
+			}
+			return app.RunCILogs(app.CILogsOptions{
+				RunID:      id,
+				JobID:      ciJobID,
+				FailedOnly: ciLogFailed,
+			})
+		},
+	}
+	ciLogsCmd.Flags().Int64Var(&ciJobID, "job", 0, "job id específico")
+	ciLogsCmd.Flags().BoolVar(&ciLogFailed, "failed", false, "somente steps falhos (--log-failed)")
+	ciRerunCmd := &cobra.Command{
+		Use:   "rerun <run-id>",
+		Short: "Re-executa um run/job (pede confirmação; avisa minutos)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, err := strconv.ParseInt(args[0], 10, 64)
+			if err != nil {
+				return fmt.Errorf("run-id inválido: %s", args[0])
+			}
+			return app.RunCIRerun(app.CIRerunOptions{
+				RunID:      id,
+				JobID:      ciJobID,
+				FailedOnly: ciLogFailed,
+				Yes:        ciYes,
+			})
+		},
+	}
+	ciRerunCmd.Flags().Int64Var(&ciJobID, "job", 0, "job id específico (databaseId)")
+	ciRerunCmd.Flags().BoolVar(&ciLogFailed, "failed", false, "somente jobs falhos")
+	ciRerunCmd.Flags().BoolVar(&ciYes, "yes", false, "confirma sem prompt")
+	ciWorkflowsCmd := &cobra.Command{
+		Use:   "workflows",
+		Short: "Lista workflows do repositório",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return app.RunCIWorkflows()
+		},
+	}
+	ciDispatchCmd := &cobra.Command{
+		Use:   "dispatch <workflow>",
+		Short: "Dispara workflow_dispatch (pede confirmação; avisa minutos)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			fields := map[string]string{}
+			for _, f := range ciFields {
+				k, v, ok := strings.Cut(f, "=")
+				if !ok {
+					continue
+				}
+				fields[strings.TrimSpace(k)] = v
+			}
+			return app.RunCIDispatch(app.CIDispatchOptions{
+				Workflow: args[0],
+				Ref:      ciRef,
+				Fields:   fields,
+				Yes:      ciYes,
+			})
+		},
+	}
+	ciDispatchCmd.Flags().StringVar(&ciRef, "ref", "", "branch/tag do workflow")
+	ciDispatchCmd.Flags().StringArrayVarP(&ciFields, "field", "f", nil, "input key=value (repetível)")
+	ciDispatchCmd.Flags().BoolVar(&ciYes, "yes", false, "confirma sem prompt")
+	var ciFixPush bool
+	ciFixCmd := &cobra.Command{
+		Use:   "fix <run-id>",
+		Short: "Corrige falha de CI com IA (preview → confirmação → commit/push)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, err := strconv.ParseInt(args[0], 10, 64)
+			if err != nil {
+				return fmt.Errorf("run-id inválido: %s", args[0])
+			}
+			return desktop.RunCIFixCLI(cmd.Context(), desktop.CIFixCLIOptions{
+				RunID: id,
+				JobID: ciJobID,
+				Yes:   ciYes,
+				Push:  ciFixPush,
+			})
+		},
+	}
+	ciFixCmd.Flags().Int64Var(&ciJobID, "job", 0, "job id específico")
+	ciFixCmd.Flags().BoolVar(&ciYes, "yes", false, "confirma sem prompt")
+	ciFixCmd.Flags().BoolVar(&ciFixPush, "push", true, "após aplicar, commit+push e acompanhar CI")
+	ciCmd.AddCommand(ciStatusCmd, ciViewCmd, ciUsageCmd, ciLogsCmd, ciRerunCmd, ciWorkflowsCmd, ciDispatchCmd, ciFixCmd)
+
+	root.AddCommand(installCmd, updateCmd, syncCmd, hygieneCmd, versionCmd, statusCmd, commitCmd, pushCmd, prCmd, configCmd, pricingCmd, reportCmd, uiCmd, doctorCmd, dockerCmd, ciCmd)
 
 	if err := root.Execute(); err != nil {
 		os.Exit(1)

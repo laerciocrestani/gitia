@@ -6,21 +6,27 @@ import (
 	"strings"
 
 	"github.com/laerciocrestani/openbench/internal/app"
+	"github.com/laerciocrestani/openbench/internal/gha"
 	gitpkg "github.com/laerciocrestani/openbench/internal/git"
 )
 
 // CommitPreview is the AI-generated message awaiting human review.
 type CommitPreview struct {
-	Message string   `json:"message"`
-	Notes   []string `json:"notes"`
-	Title   string   `json:"title"`
+	Message              string   `json:"message"`
+	Notes                []string `json:"notes"`
+	Title                string   `json:"title"`
+	Branch               string   `json:"branch,omitempty"`
+	DefaultBranchWarning string   `json:"defaultBranchWarning,omitempty"`
 }
 
 // CommitOutcome is returned after a successful confirm.
 type CommitOutcome struct {
-	Message string `json:"message"`
-	Path    string `json:"path"`
-	Pushed  bool   `json:"pushed"`
+	Message              string       `json:"message"`
+	Path                 string       `json:"path"`
+	Pushed               bool         `json:"pushed"`
+	Branch               string       `json:"branch,omitempty"`
+	DefaultBranchWarning string       `json:"defaultBranchWarning,omitempty"`
+	CI                   *CIWatchView `json:"ci,omitempty"`
 }
 
 // PreviewCommit generates a conventional commit message for projectPath (dry-run).
@@ -42,6 +48,13 @@ func PreviewCommit(ctx context.Context, projectPath string) (*CommitPreview, err
 	if result.Suggestion != nil {
 		preview.Title = result.Suggestion.Title
 		preview.Notes = append([]string{}, result.Suggestion.Notes...)
+	}
+	if repo, err := gitpkg.Open(projectPath); err == nil {
+		if branch, bErr := repo.CurrentBranch(); bErr == nil {
+			preview.Branch = branch
+			def := gha.ResolveDefaultBranch(projectPath)
+			preview.DefaultBranchWarning = gha.DefaultBranchWarning(branch, def)
+		}
 	}
 	return preview, nil
 }
@@ -70,13 +83,22 @@ func ConfirmCommit(ctx context.Context, projectPath, message string) (*CommitOut
 }
 
 // ConfirmCommitAndPush commits with the reviewed message and pushes to origin.
-func ConfirmCommitAndPush(ctx context.Context, projectPath, message string) (*CommitOutcome, error) {
+// watchCI observes GitHub Actions after a successful push.
+func ConfirmCommitAndPush(ctx context.Context, projectPath, message string, watchCI bool, onWatch func(CIWatchUpdate)) (*CommitOutcome, error) {
 	if strings.TrimSpace(projectPath) == "" {
 		return nil, fmt.Errorf("no project open")
 	}
 	message = strings.TrimSpace(message)
 	if message == "" {
 		return nil, fmt.Errorf("mensagem de commit vazia")
+	}
+	branch := ""
+	warn := ""
+	if repo, err := gitpkg.Open(projectPath); err == nil {
+		if b, bErr := repo.CurrentBranch(); bErr == nil {
+			branch = b
+			warn = gha.DefaultBranchWarning(b, gha.ResolveDefaultBranch(projectPath))
+		}
 	}
 	result, err := app.ConfirmPush(ctx, &app.Result{Message: message}, app.Options{
 		WorkDir:  projectPath,
@@ -85,9 +107,22 @@ func ConfirmCommitAndPush(ctx context.Context, projectPath, message string) (*Co
 	if err != nil {
 		return nil, err
 	}
-	out := &CommitOutcome{Path: projectPath, Message: message, Pushed: true}
+	out := &CommitOutcome{
+		Path:                 projectPath,
+		Message:              message,
+		Pushed:               true,
+		Branch:               branch,
+		DefaultBranchWarning: warn,
+	}
 	if result != nil && result.Message != "" {
 		out.Message = result.Message
+	}
+	if watchCI {
+		sha := gitHeadSHA(projectPath)
+		out.CI = watchCIAfterPush(projectPath, branch, sha, onWatch)
+		if out.CI != nil && out.CI.Message != "" {
+			out.Message += " · " + out.CI.Message
+		}
 	}
 	return out, nil
 }

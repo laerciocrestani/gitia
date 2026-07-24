@@ -25,6 +25,10 @@ type ProjectStatus struct {
 	DockerVisible bool   `json:"dockerVisible"`
 	HasOpenPR     bool   `json:"hasOpenPR"`
 	PRTitle       string `json:"prTitle,omitempty"`
+	CIState       string `json:"ciState,omitempty"`
+	CILabel       string `json:"ciLabel,omitempty"`
+	CIFromCache   bool   `json:"ciFromCache,omitempty"`
+	CIHost        string `json:"ciHost,omitempty"`
 	Active        bool   `json:"active"`
 	Error         string `json:"error,omitempty"`
 }
@@ -94,6 +98,12 @@ func LoadProjectStatus(projectPath string, includePR bool) ProjectStatus {
 					st.PRTitle = pr.Title
 				}
 			}
+		}
+		if sum := LoadCISummaryForProject(abs, st.Branch); sum != nil {
+			st.CIState = sum.State
+			st.CILabel = sum.Label
+			st.CIFromCache = sum.FromCache
+			st.CIHost = sum.Host
 		}
 	}
 

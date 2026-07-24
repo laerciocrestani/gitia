@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	dockerpkg "github.com/laerciocrestani/openbench/internal/docker"
 	gitpkg "github.com/laerciocrestani/openbench/internal/git"
 	prpkg "github.com/laerciocrestani/openbench/internal/pr"
 )
@@ -142,6 +143,48 @@ func TestOverallHealth_clean(t *testing.T) {
 	level := overallHealth(analyzeHealthIssues(snap, nil), snap)
 	if level != gitpkg.HealthOK {
 		t.Fatalf("expected ok, got %s", level)
+	}
+}
+
+func TestAnalyzeDockerHealth_onlyWhenComposePresent(t *testing.T) {
+	issues, recs := analyzeDockerHealth(&dockerpkg.Overview{
+		Available:     false,
+		DaemonRunning: false,
+	})
+	if len(issues) != 0 || len(recs) != 0 {
+		t.Fatalf("expected no docker issues without compose, got %#v %#v", issues, recs)
+	}
+
+	issues, recs = analyzeDockerHealth(&dockerpkg.Overview{
+		Available:     true,
+		DaemonRunning: true,
+		ComposeFile:   "/tmp/compose.yaml",
+		Containers:    nil,
+	})
+	if len(issues) != 1 || issues[0].Code != "docker_stopped" {
+		t.Fatalf("expected docker_stopped, got %#v", issues)
+	}
+	if len(recs) != 1 || recs[0] != "ob docker up" {
+		t.Fatalf("expected ob docker up, got %#v", recs)
+	}
+
+	issues, _ = analyzeDockerHealth(&dockerpkg.Overview{
+		Available:     true,
+		DaemonRunning: false,
+		ComposeFile:   "/tmp/compose.yaml",
+	})
+	if len(issues) != 1 || issues[0].Code != "docker_daemon" {
+		t.Fatalf("expected docker_daemon, got %#v", issues)
+	}
+
+	issues, _ = analyzeDockerHealth(&dockerpkg.Overview{
+		Available:     true,
+		DaemonRunning: true,
+		ComposeFile:   "/tmp/compose.yaml",
+		Containers:    []dockerpkg.ContainerSummary{{Service: "app", State: "running"}},
+	})
+	if len(issues) != 0 {
+		t.Fatalf("expected no issues when running, got %#v", issues)
 	}
 }
 
