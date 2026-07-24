@@ -241,3 +241,146 @@ func LoadCILog(projectPath string, runID, jobID int64, failedOnly bool) (*CILogV
 		Message:      payload.Message,
 	}, nil
 }
+
+// CIRerunPreviewView is shown before ConfirmCIRerun.
+type CIRerunPreviewView struct {
+	RunID       int64       `json:"runId"`
+	JobID       int64       `json:"jobId,omitempty"`
+	FailedOnly  bool        `json:"failedOnly"`
+	RunName     string      `json:"runName"`
+	HeadBranch  string      `json:"headBranch"`
+	CostWarning string      `json:"costWarning"`
+	Usage       CIUsageView `json:"usage"`
+}
+
+// CIDispatchPreviewView is shown before ConfirmCIDispatch.
+type CIDispatchPreviewView struct {
+	Workflow    string            `json:"workflow"`
+	Ref         string            `json:"ref,omitempty"`
+	Fields      map[string]string `json:"fields,omitempty"`
+	CostWarning string            `json:"costWarning"`
+	CanDispatch bool              `json:"canDispatch"`
+	Usage       CIUsageView       `json:"usage"`
+}
+
+// CIWorkflowView is one workflow for dispatch UI.
+type CIWorkflowView struct {
+	ID          int64  `json:"id"`
+	Name        string `json:"name"`
+	Path        string `json:"path"`
+	State       string `json:"state"`
+	CanDispatch bool   `json:"canDispatch"`
+}
+
+// PreviewCIRerun prepares a re-run confirmation (no mutation).
+func PreviewCIRerun(projectPath string, runID, jobID int64, failedOnly bool) (*CIRerunPreviewView, error) {
+	client, err := openCI(projectPath)
+	if err != nil {
+		return nil, err
+	}
+	prev, err := client.PreviewRerun(runID, gha.RerunOptions{JobID: jobID, FailedOnly: failedOnly})
+	if err != nil {
+		return nil, err
+	}
+	return &CIRerunPreviewView{
+		RunID:       prev.RunID,
+		JobID:       prev.JobID,
+		FailedOnly:  prev.FailedOnly,
+		RunName:     prev.RunName,
+		HeadBranch:  prev.HeadBranch,
+		CostWarning: prev.CostWarning,
+		Usage:       usageToView(prev.Usage),
+	}, nil
+}
+
+// ConfirmCIRerun executes a re-run after human confirmation.
+func ConfirmCIRerun(projectPath string, runID, jobID int64, failedOnly bool) error {
+	client, err := openCI(projectPath)
+	if err != nil {
+		return err
+	}
+	return client.ConfirmRerun(runID, gha.RerunOptions{JobID: jobID, FailedOnly: failedOnly})
+}
+
+// ListCIWorkflows lists Actions workflows in the open project.
+func ListCIWorkflows(projectPath string) ([]CIWorkflowView, error) {
+	client, err := openCI(projectPath)
+	if err != nil {
+		return nil, err
+	}
+	list, err := client.ListWorkflows()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]CIWorkflowView, 0, len(list))
+	for _, w := range list {
+		out = append(out, CIWorkflowView{
+			ID:          w.ID,
+			Name:        w.Name,
+			Path:        w.Path,
+			State:       w.State,
+			CanDispatch: w.CanDispatch,
+		})
+	}
+	return out, nil
+}
+
+// PreviewCIDispatch prepares workflow_dispatch confirmation (no mutation).
+// fields are "key=value" pairs.
+func PreviewCIDispatch(projectPath, workflow, ref string, fields []string) (*CIDispatchPreviewView, error) {
+	client, err := openCI(projectPath)
+	if err != nil {
+		return nil, err
+	}
+	prev, err := client.PreviewDispatch(workflow, ref, parseFieldPairs(fields))
+	if err != nil {
+		return nil, err
+	}
+	return &CIDispatchPreviewView{
+		Workflow:    prev.Workflow,
+		Ref:         prev.Ref,
+		Fields:      prev.Fields,
+		CostWarning: prev.CostWarning,
+		CanDispatch: prev.CanDispatch,
+		Usage:       usageToView(prev.Usage),
+	}, nil
+}
+
+// ConfirmCIDispatch executes workflow_dispatch after human confirmation.
+func ConfirmCIDispatch(projectPath, workflow, ref string, fields []string) error {
+	client, err := openCI(projectPath)
+	if err != nil {
+		return err
+	}
+	return client.ConfirmDispatch(workflow, ref, parseFieldPairs(fields))
+}
+
+func openCI(projectPath string) (*gha.Client, error) {
+	if strings.TrimSpace(projectPath) == "" {
+		return nil, fmt.Errorf("no project open")
+	}
+	return gha.Open(projectPath)
+}
+
+func parseFieldPairs(fields []string) map[string]string {
+	if len(fields) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(fields))
+	for _, f := range fields {
+		f = strings.TrimSpace(f)
+		if f == "" {
+			continue
+		}
+		k, v, ok := strings.Cut(f, "=")
+		if !ok {
+			continue
+		}
+		k = strings.TrimSpace(k)
+		if k == "" {
+			continue
+		}
+		out[k] = v
+	}
+	return out
+}

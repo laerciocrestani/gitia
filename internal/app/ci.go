@@ -218,6 +218,151 @@ func RunCILogs(opts CILogsOptions) error {
 	return nil
 }
 
+// CIRerunOptions controls `ob ci rerun`.
+type CIRerunOptions struct {
+	RunID      int64
+	JobID      int64
+	FailedOnly bool
+	Yes        bool
+}
+
+// RunCIRerun previews cost and re-runs after confirmation.
+func RunCIRerun(opts CIRerunOptions) error {
+	sess := ui.New("ci rerun", false)
+	sess.Header()
+
+	client, err := gha.New()
+	if err != nil {
+		return err
+	}
+
+	var prev *gha.RerunPreview
+	if err := sess.Step("Preparando re-run", func() error {
+		var err error
+		prev, err = client.PreviewRerun(opts.RunID, gha.RerunOptions{
+			JobID:      opts.JobID,
+			FailedOnly: opts.FailedOnly,
+		})
+		return err
+	}); err != nil {
+		return err
+	}
+
+	printActionsUsage(prev.Usage)
+	sess.Detail(prev.CostWarning)
+	sess.Detail(fmt.Sprintf("run %d · %s · %s", prev.RunID, prev.RunName, prev.HeadBranch))
+
+	if err := confirmCIAction(prev.CostWarning, opts.Yes); err != nil {
+		return err
+	}
+
+	if err := sess.Step("Re-executando", func() error {
+		return client.ConfirmRerun(opts.RunID, gha.RerunOptions{
+			JobID:      opts.JobID,
+			FailedOnly: opts.FailedOnly,
+		})
+	}); err != nil {
+		return err
+	}
+	sess.Success("re-run disparado")
+	return nil
+}
+
+// CIDispatchOptions controls `ob ci dispatch`.
+type CIDispatchOptions struct {
+	Workflow string
+	Ref      string
+	Fields   map[string]string
+	Yes      bool
+}
+
+// RunCIDispatch previews cost and dispatches after confirmation.
+func RunCIDispatch(opts CIDispatchOptions) error {
+	sess := ui.New("ci dispatch", false)
+	sess.Header()
+
+	client, err := gha.New()
+	if err != nil {
+		return err
+	}
+
+	var prev *gha.DispatchPreview
+	if err := sess.Step("Preparando dispatch", func() error {
+		var err error
+		prev, err = client.PreviewDispatch(opts.Workflow, opts.Ref, opts.Fields)
+		return err
+	}); err != nil {
+		return err
+	}
+
+	printActionsUsage(prev.Usage)
+	sess.Detail(prev.CostWarning)
+	if !prev.CanDispatch {
+		sess.Detail("aviso: workflow_dispatch não detectado no YAML")
+	}
+
+	if err := confirmCIAction(prev.CostWarning, opts.Yes); err != nil {
+		return err
+	}
+
+	if err := sess.Step("Disparando workflow", func() error {
+		return client.ConfirmDispatch(opts.Workflow, opts.Ref, opts.Fields)
+	}); err != nil {
+		return err
+	}
+	sess.Success("workflow_dispatch enviado")
+	return nil
+}
+
+// RunCIWorkflows lists workflows.
+func RunCIWorkflows() error {
+	sess := ui.New("ci workflows", false)
+	sess.Header()
+
+	client, err := gha.New()
+	if err != nil {
+		return err
+	}
+
+	var list []gha.Workflow
+	if err := sess.Step("Listando workflows", func() error {
+		var err error
+		list, err = client.ListWorkflows()
+		return err
+	}); err != nil {
+		return err
+	}
+
+	if len(list) == 0 {
+		sess.Success("nenhum workflow")
+		return nil
+	}
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(w, "ID\tSTATE\tNAME\tPATH")
+	for _, wf := range list {
+		fmt.Fprintf(w, "%d\t%s\t%s\t%s\n", wf.ID, wf.State, wf.Name, wf.Path)
+	}
+	_ = w.Flush()
+	sess.Success(fmt.Sprintf("%d workflow(s)", len(list)))
+	return nil
+}
+
+func confirmCIAction(warning string, yes bool) error {
+	if yes {
+		return nil
+	}
+	fmt.Fprintf(os.Stderr, "\n%s\nConfirmar? [y/N] ", warning)
+	var line string
+	if _, err := fmt.Scanln(&line); err != nil {
+		return fmt.Errorf("cancelado")
+	}
+	line = strings.TrimSpace(strings.ToLower(line))
+	if line == "y" || line == "yes" {
+		return nil
+	}
+	return fmt.Errorf("cancelado")
+}
+
 func printActionsUsage(u gha.ActionsUsage) {
 	fmt.Fprintf(os.Stdout, "Actions usage [%s]: %s\n", u.State, u.Message)
 	if u.RunMinutes != nil {

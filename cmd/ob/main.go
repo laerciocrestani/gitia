@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/laerciocrestani/openbench/internal/app"
 	"github.com/laerciocrestani/openbench/internal/config"
@@ -447,6 +448,9 @@ func main() {
 		ciAllBranches bool
 		ciJobID       int64
 		ciLogFailed   bool
+		ciYes         bool
+		ciRef         string
+		ciFields      []string
 	)
 	ciCmd := &cobra.Command{
 		Use:   "ci",
@@ -505,7 +509,58 @@ func main() {
 	}
 	ciLogsCmd.Flags().Int64Var(&ciJobID, "job", 0, "job id específico")
 	ciLogsCmd.Flags().BoolVar(&ciLogFailed, "failed", false, "somente steps falhos (--log-failed)")
-	ciCmd.AddCommand(ciStatusCmd, ciViewCmd, ciUsageCmd, ciLogsCmd)
+	ciRerunCmd := &cobra.Command{
+		Use:   "rerun <run-id>",
+		Short: "Re-executa um run/job (pede confirmação; avisa minutos)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, err := strconv.ParseInt(args[0], 10, 64)
+			if err != nil {
+				return fmt.Errorf("run-id inválido: %s", args[0])
+			}
+			return app.RunCIRerun(app.CIRerunOptions{
+				RunID:      id,
+				JobID:      ciJobID,
+				FailedOnly: ciLogFailed,
+				Yes:        ciYes,
+			})
+		},
+	}
+	ciRerunCmd.Flags().Int64Var(&ciJobID, "job", 0, "job id específico (databaseId)")
+	ciRerunCmd.Flags().BoolVar(&ciLogFailed, "failed", false, "somente jobs falhos")
+	ciRerunCmd.Flags().BoolVar(&ciYes, "yes", false, "confirma sem prompt")
+	ciWorkflowsCmd := &cobra.Command{
+		Use:   "workflows",
+		Short: "Lista workflows do repositório",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return app.RunCIWorkflows()
+		},
+	}
+	ciDispatchCmd := &cobra.Command{
+		Use:   "dispatch <workflow>",
+		Short: "Dispara workflow_dispatch (pede confirmação; avisa minutos)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			fields := map[string]string{}
+			for _, f := range ciFields {
+				k, v, ok := strings.Cut(f, "=")
+				if !ok {
+					continue
+				}
+				fields[strings.TrimSpace(k)] = v
+			}
+			return app.RunCIDispatch(app.CIDispatchOptions{
+				Workflow: args[0],
+				Ref:      ciRef,
+				Fields:   fields,
+				Yes:      ciYes,
+			})
+		},
+	}
+	ciDispatchCmd.Flags().StringVar(&ciRef, "ref", "", "branch/tag do workflow")
+	ciDispatchCmd.Flags().StringArrayVarP(&ciFields, "field", "f", nil, "input key=value (repetível)")
+	ciDispatchCmd.Flags().BoolVar(&ciYes, "yes", false, "confirma sem prompt")
+	ciCmd.AddCommand(ciStatusCmd, ciViewCmd, ciUsageCmd, ciLogsCmd, ciRerunCmd, ciWorkflowsCmd, ciDispatchCmd)
 
 	root.AddCommand(installCmd, updateCmd, syncCmd, hygieneCmd, versionCmd, statusCmd, commitCmd, pushCmd, prCmd, configCmd, pricingCmd, reportCmd, uiCmd, doctorCmd, dockerCmd, ciCmd)
 

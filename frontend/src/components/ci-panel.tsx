@@ -2,13 +2,26 @@ import { useCallback, useEffect, useState } from "react"
 
 import { AppService } from "../../bindings/github.com/laerciocrestani/openbench"
 import type {
+  CIDispatchPreviewView,
   CILogView,
+  CIRerunPreviewView,
   CIRunDetailView,
   CIRunView,
   CIStatusView,
   CIUsageView,
+  CIWorkflowView,
 } from "../../bindings/github.com/laerciocrestani/openbench/internal/desktop"
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -35,7 +48,9 @@ import {
   ExternalLink,
   FileText,
   Loader2,
+  Play,
   RefreshCw,
+  RotateCcw,
   Workflow,
 } from "lucide-react"
 
@@ -62,7 +77,12 @@ function conclusionVariant(
   if (failed) return "destructive"
   const c = (conclusion || status || "").toLowerCase()
   if (c === "success" || c === "completed") return "default"
-  if (c === "in_progress" || c === "queued" || c === "pending" || c === "waiting") {
+  if (
+    c === "in_progress" ||
+    c === "queued" ||
+    c === "pending" ||
+    c === "waiting"
+  ) {
     return "outline"
   }
   return "secondary"
@@ -72,7 +92,11 @@ function labelOf(run: CIRunView): string {
   return run.conclusion || run.status || "—"
 }
 
-function ActionsUsageBanner({ usage }: { usage: CIUsageView | null | undefined }) {
+function ActionsUsageBanner({
+  usage,
+}: {
+  usage: CIUsageView | null | undefined
+}) {
   if (!usage) return null
   const mins =
     usage.runMinutes ?? usage.windowMinutes ?? usage.orgUsedMinutes ?? null
@@ -97,7 +121,9 @@ function ActionsUsageBanner({ usage }: { usage: CIUsageView | null | undefined }
           </span>
         )}
         {usage.message ? (
-          <span className="mt-0.5 block text-muted-foreground">{usage.message}</span>
+          <span className="mt-0.5 block text-muted-foreground">
+            {usage.message}
+          </span>
         ) : null}
       </AlertDescription>
     </Alert>
@@ -117,18 +143,29 @@ export function CIPanel({
   const [status, setStatus] = useState<CIStatusView | null>(null)
   const [detail, setDetail] = useState<CIRunDetailView | null>(null)
   const [log, setLog] = useState<CILogView | null>(null)
+  const [workflows, setWorkflows] = useState<CIWorkflowView[]>([])
   const [loading, setLoading] = useState(false)
   const [detailLoading, setDetailLoading] = useState(false)
   const [logLoading, setLogLoading] = useState(false)
+  const [mutateBusy, setMutateBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [rerunPreview, setRerunPreview] = useState<CIRerunPreviewView | null>(
+    null,
+  )
+  const [dispatchPreview, setDispatchPreview] =
+    useState<CIDispatchPreviewView | null>(null)
 
   const refresh = useCallback(async () => {
     if (!projectPath) return
     setLoading(true)
     setError(null)
     try {
-      const next = await AppService.CIStatus(failedOnly, 20)
+      const [next, wfs] = await Promise.all([
+        AppService.CIStatus(failedOnly, 20),
+        AppService.ListCIWorkflows().catch(() => [] as CIWorkflowView[]),
+      ])
       setStatus(next ?? null)
+      setWorkflows(wfs ?? [])
       setDetail(null)
       setLog(null)
     } catch (e) {
@@ -171,270 +208,505 @@ export function CIPanel({
     }
   }
 
-  return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent
-        side="right"
-        className="flex w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-xl"
-      >
-        <SheetHeader className="shrink-0 border-b px-4 py-3">
-          <SheetTitle className="flex items-center gap-2 text-base">
-            <Workflow className="size-4" />
-            CI / GitHub Actions
-          </SheetTitle>
-          <p className="text-xs text-muted-foreground">
-            {status?.branch
-              ? `branch ${status.branch} · HEAD ${shortSha(status.headSha)}`
-              : "Observar runs do projeto aberto"}
-          </p>
-        </SheetHeader>
+  const askRerun = async (runId: number, jobId: number, onlyFailed: boolean) => {
+    setMutateBusy(true)
+    setError(null)
+    try {
+      const prev = await AppService.PreviewCIRerun(runId, jobId, onlyFailed)
+      setRerunPreview(prev ?? null)
+    } catch (e) {
+      setError(errText(e))
+    } finally {
+      setMutateBusy(false)
+    }
+  }
 
-        <div className="flex shrink-0 flex-wrap items-center gap-3 border-b px-4 py-2">
-          <div className="flex items-center gap-2">
-            <Checkbox
-              id="ci-failed-only"
-              checked={failedOnly}
-              onCheckedChange={(v) => setFailedOnly(v === true)}
-            />
-            <Label htmlFor="ci-failed-only" className="text-xs font-normal">
-              Só falhos
-            </Label>
-          </div>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => void refresh()}
-            disabled={loading}
-          >
-            {loading ? (
-              <Loader2 className="size-3.5 animate-spin" />
-            ) : (
-              <RefreshCw className="size-3.5" />
-            )}
-            Atualizar
-          </Button>
-          {detail && (
+  const confirmRerun = async () => {
+    if (!rerunPreview) return
+    setMutateBusy(true)
+    setError(null)
+    try {
+      await AppService.ConfirmCIRerun(
+        rerunPreview.runId,
+        rerunPreview.jobId ?? 0,
+        rerunPreview.failedOnly,
+      )
+      setRerunPreview(null)
+      await openRun(rerunPreview.runId)
+      await refresh()
+    } catch (e) {
+      setError(errText(e))
+    } finally {
+      setMutateBusy(false)
+    }
+  }
+
+  const askDispatch = async (workflow: string) => {
+    setMutateBusy(true)
+    setError(null)
+    try {
+      const prev = await AppService.PreviewCIDispatch(workflow, "", [])
+      setDispatchPreview(prev ?? null)
+    } catch (e) {
+      setError(errText(e))
+    } finally {
+      setMutateBusy(false)
+    }
+  }
+
+  const confirmDispatch = async () => {
+    if (!dispatchPreview) return
+    setMutateBusy(true)
+    setError(null)
+    try {
+      await AppService.ConfirmCIDispatch(
+        dispatchPreview.workflow,
+        dispatchPreview.ref ?? "",
+        [],
+      )
+      setDispatchPreview(null)
+      await refresh()
+    } catch (e) {
+      setError(errText(e))
+    } finally {
+      setMutateBusy(false)
+    }
+  }
+
+  return (
+    <>
+      <Sheet open={open} onOpenChange={onOpenChange}>
+        <SheetContent
+          side="right"
+          className="flex w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-xl"
+        >
+          <SheetHeader className="shrink-0 border-b px-4 py-3">
+            <SheetTitle className="flex items-center gap-2 text-base">
+              <Workflow className="size-4" />
+              CI / GitHub Actions
+            </SheetTitle>
+            <p className="text-xs text-muted-foreground">
+              {status?.branch
+                ? `branch ${status.branch} · HEAD ${shortSha(status.headSha)}`
+                : "Observar e reagir aos runs do projeto aberto"}
+            </p>
+          </SheetHeader>
+
+          <div className="flex shrink-0 flex-wrap items-center gap-3 border-b px-4 py-2">
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="ci-failed-only"
+                checked={failedOnly}
+                onCheckedChange={(v) => setFailedOnly(v === true)}
+              />
+              <Label htmlFor="ci-failed-only" className="text-xs font-normal">
+                Só falhos
+              </Label>
+            </div>
             <Button
               size="sm"
-              variant="ghost"
-              onClick={() => setDetail(null)}
-              className="ml-auto"
+              variant="outline"
+              onClick={() => void refresh()}
+              disabled={loading || mutateBusy}
             >
-              ← Lista
+              {loading ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                <RefreshCw className="size-3.5" />
+              )}
+              Atualizar
             </Button>
-          )}
-        </div>
+            {detail && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  setDetail(null)
+                  setLog(null)
+                }}
+                className="ml-auto"
+              >
+                ← Lista
+              </Button>
+            )}
+          </div>
 
-        <div className="shrink-0 space-y-2 px-4 py-2">
-          <ActionsUsageBanner usage={detail?.usage ?? status?.usage} />
-          {error && (
-            <Alert variant="destructive">
-              <AlertDescription className="text-xs">{error}</AlertDescription>
-            </Alert>
-          )}
-        </div>
+          <div className="shrink-0 space-y-2 px-4 py-2">
+            <ActionsUsageBanner
+              usage={
+                rerunPreview?.usage ??
+                dispatchPreview?.usage ??
+                detail?.usage ??
+                status?.usage
+              }
+            />
+            {error && (
+              <Alert variant="destructive">
+                <AlertDescription className="text-xs">{error}</AlertDescription>
+              </Alert>
+            )}
+          </div>
 
-        <ScrollArea className="min-h-0 flex-1 px-4 pb-4">
-          {detailLoading && (
-            <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
-              <Loader2 className="size-4 animate-spin" />
-              Carregando run…
-            </div>
-          )}
-
-          {!detailLoading && detail && (
-            <div className="space-y-4">
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge
-                  variant={conclusionVariant(
-                    detail.run.status,
-                    detail.run.conclusion,
-                    detail.run.failed,
-                  )}
-                >
-                  {labelOf(detail.run)}
-                </Badge>
-                <span className="text-sm font-medium">{detail.run.name}</span>
-                {detail.run.url && (
-                  <a
-                    href={detail.run.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:underline"
-                  >
-                    GitHub <ExternalLink className="size-3" />
-                  </a>
-                )}
+          <ScrollArea className="min-h-0 flex-1 px-4 pb-4">
+            {detailLoading && (
+              <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
+                <Loader2 className="size-4 animate-spin" />
+                Carregando run…
               </div>
-              <p className="text-xs text-muted-foreground">
-                {detail.run.workflowName} · {detail.run.event} ·{" "}
-                {shortSha(detail.run.headSha)}
-              </p>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={logLoading}
-                  onClick={() => void loadLog(detail.run.id, 0, true)}
-                >
-                  {logLoading ? (
-                    <Loader2 className="size-3.5 animate-spin" />
-                  ) : (
-                    <FileText className="size-3.5" />
+            )}
+
+            {!detailLoading && detail && (
+              <div className="space-y-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge
+                    variant={conclusionVariant(
+                      detail.run.status,
+                      detail.run.conclusion,
+                      detail.run.failed,
+                    )}
+                  >
+                    {labelOf(detail.run)}
+                  </Badge>
+                  <span className="text-sm font-medium">{detail.run.name}</span>
+                  {detail.run.url && (
+                    <a
+                      href={detail.run.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:underline"
+                    >
+                      GitHub <ExternalLink className="size-3" />
+                    </a>
                   )}
-                  Logs falhos
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  disabled={logLoading}
-                  onClick={() => void loadLog(detail.run.id, 0, false)}
-                >
-                  Log completo
-                </Button>
-                {log && (
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {detail.run.workflowName} · {detail.run.event} ·{" "}
+                  {shortSha(detail.run.headSha)}
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={logLoading || mutateBusy}
+                    onClick={() => void loadLog(detail.run.id, 0, true)}
+                  >
+                    {logLoading ? (
+                      <Loader2 className="size-3.5 animate-spin" />
+                    ) : (
+                      <FileText className="size-3.5" />
+                    )}
+                    Logs falhos
+                  </Button>
                   <Button
                     size="sm"
                     variant="ghost"
-                    onClick={() => setLog(null)}
+                    disabled={logLoading || mutateBusy}
+                    onClick={() => void loadLog(detail.run.id, 0, false)}
                   >
-                    Fechar log
+                    Log completo
                   </Button>
-                )}
-              </div>
-
-              {log && (
-                <div className="space-y-2 rounded-lg border p-3">
-                  <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                    <span className="font-medium text-foreground">
-                      Log redigido
-                    </span>
-                    <span>
-                      {log.bytes} bytes
-                      {log.truncated ? " · truncado" : ""}
-                      {log.jobId ? ` · job ${log.jobId}` : ""}
-                      {log.failedOnly ? " · só falhos" : ""}
-                    </span>
-                  </div>
-                  {log.message && (
-                    <p className="text-xs text-muted-foreground">{log.message}</p>
-                  )}
-                  <pre className="max-h-[50vh] overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted/50 p-2 font-mono text-[11px] leading-relaxed">
-                    {log.redactedText || "(vazio)"}
-                  </pre>
-                </div>
-              )}
-
-              {(detail.jobs ?? []).map((job) => (
-                <div key={job.id} className="rounded-lg border p-3">
-                  <div className="mb-2 flex flex-wrap items-center gap-2">
-                    <Badge
-                      variant={conclusionVariant(
-                        job.status,
-                        job.conclusion,
-                        job.failed,
-                      )}
-                    >
-                      {job.conclusion || job.status}
-                    </Badge>
-                    <span className="text-sm font-medium">{job.name}</span>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={mutateBusy}
+                    onClick={() => void askRerun(detail.run.id, 0, false)}
+                  >
+                    <RotateCcw className="size-3.5" />
+                    Re-run
+                  </Button>
+                  {detail.run.failed && (
                     <Button
                       size="sm"
-                      variant="ghost"
-                      className="ml-auto h-7 px-2 text-xs"
-                      disabled={logLoading}
-                      onClick={() =>
-                        void loadLog(detail.run.id, job.id, job.failed)
-                      }
+                      variant="secondary"
+                      disabled={mutateBusy}
+                      onClick={() => void askRerun(detail.run.id, 0, true)}
                     >
-                      <FileText className="size-3" />
-                      Log
+                      <RotateCcw className="size-3.5" />
+                      Re-run falhos
                     </Button>
+                  )}
+                  {log && (
+                    <Button size="sm" variant="ghost" onClick={() => setLog(null)}>
+                      Fechar log
+                    </Button>
+                  )}
+                </div>
+
+                {log && (
+                  <div className="space-y-2 rounded-lg border p-3">
+                    <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                      <span className="font-medium text-foreground">
+                        Log redigido
+                      </span>
+                      <span>
+                        {log.bytes} bytes
+                        {log.truncated ? " · truncado" : ""}
+                        {log.jobId ? ` · job ${log.jobId}` : ""}
+                        {log.failedOnly ? " · só falhos" : ""}
+                      </span>
+                    </div>
+                    {log.message && (
+                      <p className="text-xs text-muted-foreground">
+                        {log.message}
+                      </p>
+                    )}
+                    <pre className="max-h-[50vh] overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted/50 p-2 font-mono text-[11px] leading-relaxed">
+                      {log.redactedText || "(vazio)"}
+                    </pre>
                   </div>
-                  <ul className="space-y-1 text-xs">
-                    {(job.steps ?? []).map((step) => (
-                      <li
-                        key={`${job.id}-${step.number}`}
-                        className={cn(
-                          "flex justify-between gap-2 font-mono",
-                          step.failed && "text-destructive",
+                )}
+
+                {(detail.jobs ?? []).map((job) => (
+                  <div key={job.id} className="rounded-lg border p-3">
+                    <div className="mb-2 flex flex-wrap items-center gap-2">
+                      <Badge
+                        variant={conclusionVariant(
+                          job.status,
+                          job.conclusion,
+                          job.failed,
                         )}
                       >
-                        <span>
-                          {step.number}. {step.name}
-                        </span>
-                        <span className="text-muted-foreground">
-                          {step.conclusion || step.status}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ))}
-              {(detail.jobs ?? []).length === 0 && (
-                <p className="text-sm text-muted-foreground">Run sem jobs.</p>
-              )}
-            </div>
-          )}
+                        {job.conclusion || job.status}
+                      </Badge>
+                      <span className="text-sm font-medium">{job.name}</span>
+                      <div className="ml-auto flex gap-1">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 px-2 text-xs"
+                          disabled={logLoading || mutateBusy}
+                          onClick={() =>
+                            void loadLog(detail.run.id, job.id, job.failed)
+                          }
+                        >
+                          <FileText className="size-3" />
+                          Log
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 px-2 text-xs"
+                          disabled={mutateBusy}
+                          onClick={() =>
+                            void askRerun(detail.run.id, job.id, false)
+                          }
+                        >
+                          <RotateCcw className="size-3" />
+                          Re-run
+                        </Button>
+                      </div>
+                    </div>
+                    <ul className="space-y-1 text-xs">
+                      {(job.steps ?? []).map((step) => (
+                        <li
+                          key={`${job.id}-${step.number}`}
+                          className={cn(
+                            "flex justify-between gap-2 font-mono",
+                            step.failed && "text-destructive",
+                          )}
+                        >
+                          <span>
+                            {step.number}. {step.name}
+                          </span>
+                          <span className="text-muted-foreground">
+                            {step.conclusion || step.status}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+                {(detail.jobs ?? []).length === 0 && (
+                  <p className="text-sm text-muted-foreground">Run sem jobs.</p>
+                )}
+              </div>
+            )}
 
-          {!detailLoading && !detail && (
-            <>
-              {loading && !status ? (
-                <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
-                  <Loader2 className="size-4 animate-spin" />
-                  Listando runs…
-                </div>
-              ) : (status?.runs ?? []).length === 0 ? (
-                <p className="py-8 text-sm text-muted-foreground">
-                  Nenhum workflow run encontrado
-                  {failedOnly ? " com falha" : ""} nesta branch.
-                </p>
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Run</TableHead>
-                      <TableHead>Event</TableHead>
-                      <TableHead>SHA</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {(status?.runs ?? []).map((run) => (
-                      <TableRow
-                        key={run.id}
-                        className="cursor-pointer"
-                        onClick={() => void openRun(run.id)}
-                      >
-                        <TableCell>
-                          <Badge
-                            variant={conclusionVariant(
-                              run.status,
-                              run.conclusion,
-                              run.failed,
-                            )}
-                          >
-                            {labelOf(run)}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="max-w-[12rem] truncate text-sm">
-                          {run.name || run.workflowName}
-                        </TableCell>
-                        <TableCell className="text-xs text-muted-foreground">
-                          {run.event}
-                        </TableCell>
-                        <TableCell className="font-mono text-xs">
-                          {shortSha(run.headSha)}
-                        </TableCell>
+            {!detailLoading && !detail && (
+              <>
+                {loading && !status ? (
+                  <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
+                    <Loader2 className="size-4 animate-spin" />
+                    Listando runs…
+                  </div>
+                ) : (status?.runs ?? []).length === 0 ? (
+                  <p className="py-8 text-sm text-muted-foreground">
+                    Nenhum workflow run encontrado
+                    {failedOnly ? " com falha" : ""} nesta branch.
+                  </p>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Run</TableHead>
+                        <TableHead>Event</TableHead>
+                        <TableHead>SHA</TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              )}
-            </>
+                    </TableHeader>
+                    <TableBody>
+                      {(status?.runs ?? []).map((run) => (
+                        <TableRow
+                          key={run.id}
+                          className="cursor-pointer"
+                          onClick={() => void openRun(run.id)}
+                        >
+                          <TableCell>
+                            <Badge
+                              variant={conclusionVariant(
+                                run.status,
+                                run.conclusion,
+                                run.failed,
+                              )}
+                            >
+                              {labelOf(run)}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="max-w-[12rem] truncate text-sm">
+                            {run.name || run.workflowName}
+                          </TableCell>
+                          <TableCell className="text-xs text-muted-foreground">
+                            {run.event}
+                          </TableCell>
+                          <TableCell className="font-mono text-xs">
+                            {shortSha(run.headSha)}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+
+                {workflows.length > 0 && (
+                  <div className="mt-6 space-y-2">
+                    <h3 className="text-sm font-medium">Workflows · dispatch</h3>
+                    <p className="text-xs text-muted-foreground">
+                      Disparo manual consome minutos de Actions — confirmação
+                      obrigatória.
+                    </p>
+                    <ul className="space-y-2">
+                      {workflows.map((wf) => (
+                        <li
+                          key={wf.id}
+                          className="flex items-center gap-2 rounded-lg border px-3 py-2"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-medium">
+                              {wf.name}
+                            </p>
+                            <p className="truncate font-mono text-[11px] text-muted-foreground">
+                              {wf.path || wf.state}
+                            </p>
+                          </div>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={mutateBusy || wf.state === "disabled"}
+                            onClick={() =>
+                              void askDispatch(wf.path || wf.name)
+                            }
+                          >
+                            <Play className="size-3.5" />
+                            Dispatch
+                          </Button>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </>
+            )}
+          </ScrollArea>
+        </SheetContent>
+      </Sheet>
+
+      <AlertDialog
+        open={!!rerunPreview}
+        onOpenChange={(v) => {
+          if (!v) setRerunPreview(null)
+        }}
+      >
+        <AlertDialogContent className="sm:max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirmar re-run</AlertDialogTitle>
+            <AlertDialogDescription className="space-y-2 text-left">
+              <span className="block font-medium text-foreground">
+                {rerunPreview?.costWarning}
+              </span>
+              <span className="block text-xs">
+                Run #{rerunPreview?.runId} · {rerunPreview?.runName} ·{" "}
+                {rerunPreview?.headBranch}
+                {rerunPreview?.jobId ? ` · job ${rerunPreview.jobId}` : ""}
+                {rerunPreview?.failedOnly ? " · só falhos" : ""}
+              </span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {rerunPreview?.usage && (
+            <ActionsUsageBanner usage={rerunPreview.usage} />
           )}
-        </ScrollArea>
-      </SheetContent>
-    </Sheet>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={mutateBusy}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={mutateBusy}
+              onClick={(e) => {
+                e.preventDefault()
+                void confirmRerun()
+              }}
+            >
+              {mutateBusy ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                <RotateCcw className="size-3.5" />
+              )}
+              Confirmar re-run
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={!!dispatchPreview}
+        onOpenChange={(v) => {
+          if (!v) setDispatchPreview(null)
+        }}
+      >
+        <AlertDialogContent className="sm:max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirmar dispatch</AlertDialogTitle>
+            <AlertDialogDescription className="space-y-2 text-left">
+              <span className="block font-medium text-foreground">
+                {dispatchPreview?.costWarning}
+              </span>
+              <span className="block text-xs">
+                Workflow: {dispatchPreview?.workflow}
+                {!dispatchPreview?.canDispatch
+                  ? " · workflow_dispatch pode não estar habilitado"
+                  : ""}
+              </span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {dispatchPreview?.usage && (
+            <ActionsUsageBanner usage={dispatchPreview.usage} />
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={mutateBusy}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={mutateBusy}
+              onClick={(e) => {
+                e.preventDefault()
+                void confirmDispatch()
+              }}
+            >
+              {mutateBusy ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                <Play className="size-3.5" />
+              )}
+              Confirmar dispatch
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   )
 }

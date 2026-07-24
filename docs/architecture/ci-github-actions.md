@@ -256,7 +256,7 @@ Meta de produto = conjunto completo de RFs. Entrega interna em fatias **testáve
 |-------|---------|--------|
 | **A — Observe** | `internal/gha` list/view/jobs + painel + `ob ci status/view` + usage best-effort | ✅ `internal/gha` + `ob ci status\|view\|usage` + painel CI (desktop) + `ActionsUsage` |
 | **B — Logs** | fetch sob demanda + `redact` + log viewer + `ob ci logs` | ✅ `internal/redact` + `gha.FetchLog` + `ob ci logs` + viewer no painel CI |
-| **C — React** | rerun + dispatch + confirms + avisos de minutos | Mutação só com confirm; custo visível |
+| **C — React** | rerun + dispatch + confirms + avisos de minutos | ✅ Preview/Confirm + `ob ci rerun\|dispatch\|workflows` + dialogs no painel |
 | **D — Orchestrate** | pós-push watch + default-branch warning no push | Push main alerta; CI aparece sem abrir browser |
 | **E — Fix IA** | failure window → patch preview → confirm commit/push → watch | Usuário só confirma; novo run (não re-run) após fix |
 | **F — Harden** | GHE smoke, StatusHub badge, Doctor, cache offline do último summary | Enterprise host; offline falha clara; badge no dashboard |
@@ -307,4 +307,4 @@ docs/architecture/
 
 ---
 
-**Próximo passo:** fatia **C (React)** — rerun + dispatch + confirms + avisos de minutos.
+**Próximo passo:** fatia **D (Orchestrate)** — pós-push watch + default-branch warning no push.
