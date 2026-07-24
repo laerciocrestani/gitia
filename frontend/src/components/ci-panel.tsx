@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react"
 
 import { AppService } from "../../bindings/github.com/laerciocrestani/openbench"
 import type {
+  CILogView,
   CIRunDetailView,
   CIRunView,
   CIStatusView,
@@ -32,6 +33,7 @@ import { cn } from "@/lib/utils"
 import {
   CircleAlert,
   ExternalLink,
+  FileText,
   Loader2,
   RefreshCw,
   Workflow,
@@ -114,8 +116,10 @@ export function CIPanel({
   const [failedOnly, setFailedOnly] = useState(false)
   const [status, setStatus] = useState<CIStatusView | null>(null)
   const [detail, setDetail] = useState<CIRunDetailView | null>(null)
+  const [log, setLog] = useState<CILogView | null>(null)
   const [loading, setLoading] = useState(false)
   const [detailLoading, setDetailLoading] = useState(false)
+  const [logLoading, setLogLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
@@ -126,6 +130,7 @@ export function CIPanel({
       const next = await AppService.CIStatus(failedOnly, 20)
       setStatus(next ?? null)
       setDetail(null)
+      setLog(null)
     } catch (e) {
       setError(errText(e))
       setStatus(null)
@@ -142,6 +147,7 @@ export function CIPanel({
   const openRun = async (id: number) => {
     setDetailLoading(true)
     setError(null)
+    setLog(null)
     try {
       const next = await AppService.CIRunDetail(id)
       setDetail(next ?? null)
@@ -149,6 +155,19 @@ export function CIPanel({
       setError(errText(e))
     } finally {
       setDetailLoading(false)
+    }
+  }
+
+  const loadLog = async (runId: number, jobId: number, onlyFailed: boolean) => {
+    setLogLoading(true)
+    setError(null)
+    try {
+      const next = await AppService.CILog(runId, jobId, onlyFailed)
+      setLog(next ?? null)
+    } catch (e) {
+      setError(errText(e))
+    } finally {
+      setLogLoading(false)
     }
   }
 
@@ -251,9 +270,64 @@ export function CIPanel({
                 {detail.run.workflowName} · {detail.run.event} ·{" "}
                 {shortSha(detail.run.headSha)}
               </p>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={logLoading}
+                  onClick={() => void loadLog(detail.run.id, 0, true)}
+                >
+                  {logLoading ? (
+                    <Loader2 className="size-3.5 animate-spin" />
+                  ) : (
+                    <FileText className="size-3.5" />
+                  )}
+                  Logs falhos
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={logLoading}
+                  onClick={() => void loadLog(detail.run.id, 0, false)}
+                >
+                  Log completo
+                </Button>
+                {log && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setLog(null)}
+                  >
+                    Fechar log
+                  </Button>
+                )}
+              </div>
+
+              {log && (
+                <div className="space-y-2 rounded-lg border p-3">
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                    <span className="font-medium text-foreground">
+                      Log redigido
+                    </span>
+                    <span>
+                      {log.bytes} bytes
+                      {log.truncated ? " · truncado" : ""}
+                      {log.jobId ? ` · job ${log.jobId}` : ""}
+                      {log.failedOnly ? " · só falhos" : ""}
+                    </span>
+                  </div>
+                  {log.message && (
+                    <p className="text-xs text-muted-foreground">{log.message}</p>
+                  )}
+                  <pre className="max-h-[50vh] overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted/50 p-2 font-mono text-[11px] leading-relaxed">
+                    {log.redactedText || "(vazio)"}
+                  </pre>
+                </div>
+              )}
+
               {(detail.jobs ?? []).map((job) => (
                 <div key={job.id} className="rounded-lg border p-3">
-                  <div className="mb-2 flex items-center gap-2">
+                  <div className="mb-2 flex flex-wrap items-center gap-2">
                     <Badge
                       variant={conclusionVariant(
                         job.status,
@@ -264,6 +338,18 @@ export function CIPanel({
                       {job.conclusion || job.status}
                     </Badge>
                     <span className="text-sm font-medium">{job.name}</span>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="ml-auto h-7 px-2 text-xs"
+                      disabled={logLoading}
+                      onClick={() =>
+                        void loadLog(detail.run.id, job.id, job.failed)
+                      }
+                    >
+                      <FileText className="size-3" />
+                      Log
+                    </Button>
                   </div>
                   <ul className="space-y-1 text-xs">
                     {(job.steps ?? []).map((step) => (

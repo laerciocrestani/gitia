@@ -169,6 +169,55 @@ func RunCIUsage() error {
 	return nil
 }
 
+// CILogsOptions controls `ob ci logs`.
+type CILogsOptions struct {
+	RunID      int64
+	JobID      int64
+	FailedOnly bool
+}
+
+// RunCILogs prints a redacted workflow log (on demand).
+func RunCILogs(opts CILogsOptions) error {
+	sess := ui.New("ci logs", false)
+	sess.Header()
+
+	client, err := gha.New()
+	if err != nil {
+		return err
+	}
+
+	var payload *gha.LogPayload
+	label := "Baixando log"
+	if opts.FailedOnly {
+		label += " (falhos)"
+	}
+	if err := sess.Step(label, func() error {
+		var err error
+		payload, err = client.FetchLog(gha.LogOptions{
+			RunID:      opts.RunID,
+			JobID:      opts.JobID,
+			FailedOnly: opts.FailedOnly,
+			MaxBytes:   -1, // CLI: full redacted log
+		})
+		return err
+	}); err != nil {
+		return err
+	}
+
+	if payload.Message != "" {
+		sess.Detail(payload.Message)
+	}
+	sess.Detail(fmt.Sprintf("bytes=%d raw=%d useful=%v truncated=%v",
+		payload.Bytes, payload.RawBytes, payload.Useful, payload.Truncated))
+	fmt.Fprintln(os.Stdout)
+	fmt.Fprint(os.Stdout, payload.RedactedText)
+	if !strings.HasSuffix(payload.RedactedText, "\n") {
+		fmt.Fprintln(os.Stdout)
+	}
+	sess.Success("log redigido")
+	return nil
+}
+
 func printActionsUsage(u gha.ActionsUsage) {
 	fmt.Fprintf(os.Stdout, "Actions usage [%s]: %s\n", u.State, u.Message)
 	if u.RunMinutes != nil {

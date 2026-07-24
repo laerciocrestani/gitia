@@ -11,3 +11,8 @@ func (s *AppService) CIStatus(failedOnly bool, limit int) (*desktop.CIStatusView
 func (s *AppService) CIRunDetail(runID int64) (*desktop.CIRunDetailView, error) {
 	return desktop.LoadCIRunDetail(s.currentPath(), runID)
 }
+
+// CILog fetches a redacted Actions log on demand (failed steps and/or job).
+func (s *AppService) CILog(runID, jobID int64, failedOnly bool) (*desktop.CILogView, error) {
+	return desktop.LoadCILog(s.currentPath(), runID, jobID, failedOnly)
+}

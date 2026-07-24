@@ -195,3 +195,49 @@ func formatCITime(t time.Time) string {
 	}
 	return t.UTC().Format(time.RFC3339)
 }
+
+// CILogView is an on-demand redacted Actions log (ADR-008).
+type CILogView struct {
+	RunID        int64  `json:"runId"`
+	JobID        int64  `json:"jobId,omitempty"`
+	FailedOnly   bool   `json:"failedOnly"`
+	RedactedText string `json:"redactedText"`
+	Bytes        int    `json:"bytes"`
+	RawBytes     int    `json:"rawBytes"`
+	Truncated    bool   `json:"truncated"`
+	Useful       bool   `json:"useful"`
+	Message      string `json:"message,omitempty"`
+}
+
+// LoadCILog fetches workflow logs on demand and redacts secrets.
+func LoadCILog(projectPath string, runID, jobID int64, failedOnly bool) (*CILogView, error) {
+	if strings.TrimSpace(projectPath) == "" {
+		return nil, fmt.Errorf("no project open")
+	}
+	if runID <= 0 {
+		return nil, fmt.Errorf("run id inválido")
+	}
+	client, err := gha.Open(projectPath)
+	if err != nil {
+		return nil, err
+	}
+	payload, err := client.FetchLog(gha.LogOptions{
+		RunID:      runID,
+		JobID:      jobID,
+		FailedOnly: failedOnly,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &CILogView{
+		RunID:        payload.RunID,
+		JobID:        payload.JobID,
+		FailedOnly:   payload.FailedOnly,
+		RedactedText: payload.RedactedText,
+		Bytes:        payload.Bytes,
+		RawBytes:     payload.RawBytes,
+		Truncated:    payload.Truncated,
+		Useful:       payload.Useful,
+		Message:      payload.Message,
+	}, nil
+}

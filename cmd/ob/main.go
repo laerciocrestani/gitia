@@ -445,6 +445,8 @@ func main() {
 		ciLimit       int
 		ciBranch      string
 		ciAllBranches bool
+		ciJobID       int64
+		ciLogFailed   bool
 	)
 	ciCmd := &cobra.Command{
 		Use:   "ci",
@@ -485,7 +487,25 @@ func main() {
 			return app.RunCIUsage()
 		},
 	}
-	ciCmd.AddCommand(ciStatusCmd, ciViewCmd, ciUsageCmd)
+	ciLogsCmd := &cobra.Command{
+		Use:   "logs <run-id>",
+		Short: "Baixa log do run sob demanda (sempre redigido)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, err := strconv.ParseInt(args[0], 10, 64)
+			if err != nil {
+				return fmt.Errorf("run-id inválido: %s", args[0])
+			}
+			return app.RunCILogs(app.CILogsOptions{
+				RunID:      id,
+				JobID:      ciJobID,
+				FailedOnly: ciLogFailed,
+			})
+		},
+	}
+	ciLogsCmd.Flags().Int64Var(&ciJobID, "job", 0, "job id específico")
+	ciLogsCmd.Flags().BoolVar(&ciLogFailed, "failed", false, "somente steps falhos (--log-failed)")
+	ciCmd.AddCommand(ciStatusCmd, ciViewCmd, ciUsageCmd, ciLogsCmd)
 
 	root.AddCommand(installCmd, updateCmd, syncCmd, hygieneCmd, versionCmd, statusCmd, commitCmd, pushCmd, prCmd, configCmd, pricingCmd, reportCmd, uiCmd, doctorCmd, dockerCmd, ciCmd)
 
