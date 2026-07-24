@@ -18,6 +18,7 @@ import type {
   Prefs,
   ProjectStatus,
   PRPreview,
+  PRStatus,
   PushPreview,
   SyncResult,
   TimelineView,
@@ -1439,6 +1440,9 @@ function App() {
   const [prManageBusy, setPrManageBusy] = useState(false)
   const [mergeDialogOpen, setMergeDialogOpen] = useState(false)
   const [mergingMethod, setMergingMethod] = useState<string | null>(null)
+  const [mergePRs, setMergePRs] = useState<PRStatus[]>([])
+  const [mergePRsLoading, setMergePRsLoading] = useState(false)
+  const [selectedMergePR, setSelectedMergePR] = useState<number>(0)
 
   // Commit calendar
   const [commitActivity, setCommitActivity] = useState<CommitActivityView | null>(null)
@@ -2016,12 +2020,51 @@ function App() {
     }
   }
 
+  const openMergeDialog = async (preferredNumber = 0) => {
+    setMergeDialogOpen(true)
+    setMergePRsLoading(true)
+    setError(null)
+    try {
+      const list = (await AppService.ListOpenPRs()) ?? []
+      setMergePRs(list)
+      const current = dash?.openPR?.number ?? 0
+      const preferred =
+        preferredNumber > 0 && list.some((p) => p.number === preferredNumber)
+          ? preferredNumber
+          : 0
+      const fallback =
+        current > 0 && list.some((p) => p.number === current)
+          ? current
+          : (list[0]?.number ?? 0)
+      setSelectedMergePR(preferred || fallback)
+    } catch (e) {
+      setMergePRs([])
+      setSelectedMergePR(0)
+      setError(errText(e))
+    } finally {
+      setMergePRsLoading(false)
+    }
+  }
+
   const mergePR = async (method: string) => {
+    if (selectedMergePR <= 0) {
+      setError("Selecione um PR para mergear")
+      return
+    }
+    const selected = mergePRs.find((p) => p.number === selectedMergePR)
+    if (selected?.isDraft) {
+      setError("Marque Ready for review antes de mergear")
+      return
+    }
+    if (String(selected?.mergeable || "").toUpperCase() === "CONFLICTING") {
+      setError("PR com conflitos — resolva antes de mergear")
+      return
+    }
     setPrManageBusy(true)
     setMergingMethod(method)
     setError(null)
     try {
-      await AppService.MergePR(method)
+      await AppService.MergePR(selectedMergePR, method)
       setMergeDialogOpen(false)
       // Clear immediately — gh may still return the MERGED PR for a moment.
       setDash((prev) => (prev ? { ...prev, openPR: undefined } : prev))
@@ -2187,6 +2230,13 @@ function App() {
   const pushDoctorGate = doctorGate(doctorReport, "push")
   const prDoctorGate = doctorGate(doctorReport, "pr")
   const mergeDoctorGate = doctorGate(doctorReport, "merge")
+  const selectedMergePRView = mergePRs.find((p) => p.number === selectedMergePR)
+  const mergeActionDisabled =
+    prManageBusy ||
+    mergeDoctorGate.blocked ||
+    mergePRsLoading ||
+    selectedMergePR <= 0 ||
+    Boolean(selectedMergePRView?.isDraft)
 
   const confirmNewBranch = async () => {
     const name = newBranchName.trim()
@@ -2765,6 +2815,7 @@ function App() {
                 onLoadMore={loadMoreTimeline}
                 onConfirmAction={handleTimelineConfirm}
                 onCheckoutBranch={handleTimelineCheckout}
+                onMergePR={(number) => void openMergeDialog(number)}
                 actionBusy={timelineActionBusy}
                 compact
                 className="h-full"
@@ -3154,13 +3205,15 @@ function App() {
               <Button
                 size="sm"
                 variant="default"
-                onClick={() => setMergeDialogOpen(true)}
-                disabled={busy || prManageBusy || Boolean(prMergeBlocked(dash))}
+                onClick={() => void openMergeDialog()}
+                disabled={busy || prManageBusy || !dash?.hasGH}
                 className={cn(suggestedStep === "merge" && "next-step-pulse")}
                 title={
                   suggestedStep === "merge"
                     ? nextStepTitle("merge")
-                    : (prMergeBlocked(dash) ?? "Mergear PR no GitHub")
+                    : !dash?.hasGH
+                      ? "GitHub CLI necessário para mergear PR"
+                      : (prMergeBlocked(dash) ?? "Mergear PR no GitHub")
                 }
               >
                 {prManageBusy ? <Loader2 className="animate-spin" /> : <GitMerge />}
@@ -3881,15 +3934,23 @@ function App() {
       </Dialog>
 
       {/* PR dialog */}
-      <Dialog open={mergeDialogOpen} onOpenChange={setMergeDialogOpen}>
+      <Dialog
+        open={mergeDialogOpen}
+        onOpenChange={(open) => {
+          setMergeDialogOpen(open)
+          if (!open) {
+            setMergingMethod(null)
+          }
+        }}
+      >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <GitMerge className="size-4" />
               Merge PR
-              {dash?.openPR?.number ? (
+              {selectedMergePR > 0 ? (
                 <Badge variant="outline" className="font-normal">
-                  #{dash.openPR.number}
+                  #{selectedMergePR}
                 </Badge>
               ) : null}
             </DialogTitle>
@@ -3899,52 +3960,108 @@ function App() {
             action="merge"
             onOpenDoctor={openDoctorFromGate}
           />
-          <p className="text-sm text-muted-foreground">
-            Escolha o método de merge no GitHub.
-          </p>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              className="border-teal-200/80 bg-teal-50 text-teal-800 hover:bg-teal-100 hover:text-teal-900 dark:border-teal-800/60 dark:bg-teal-950/40 dark:text-teal-200 dark:hover:bg-teal-950/70"
-              disabled={prManageBusy || mergeDoctorGate.blocked}
-              onClick={() => void mergePR("squash")}
-            >
-              {mergingMethod === "squash" ? (
-                <Loader2 className="animate-spin" />
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="merge-pr-select">Pull request</Label>
+              {mergePRsLoading ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="size-4 animate-spin" />
+                  Carregando PRs abertos…
+                </div>
+              ) : mergePRs.length === 0 ? (
+                <Alert>
+                  <AlertDescription className="text-xs">
+                    Nenhum PR aberto neste repositório.
+                  </AlertDescription>
+                </Alert>
               ) : (
-                <Layers />
+                <Select
+                  value={selectedMergePR > 0 ? String(selectedMergePR) : undefined}
+                  onValueChange={(v) => setSelectedMergePR(Number(v ?? 0) || 0)}
+                  disabled={prManageBusy}
+                >
+                  <SelectTrigger id="merge-pr-select" className="w-full">
+                    <SelectValue placeholder="Selecione o PR" />
+                  </SelectTrigger>
+                  <SelectContent className="w-(--anchor-width)">
+                    {mergePRs.map((pr) => (
+                      <SelectItem key={pr.number} value={String(pr.number)}>
+                        <span className="flex min-w-0 flex-col gap-0.5 text-left">
+                          <span className="truncate font-medium">
+                            #{pr.number} · {pr.title}
+                          </span>
+                          <span className="truncate text-[11px] text-muted-foreground">
+                            {pr.headRefName || "sem branch"}
+                            {pr.isDraft ? " · draft" : ""}
+                            {String(pr.mergeable || "").toUpperCase() === "CONFLICTING"
+                              ? " · conflitos"
+                              : ""}
+                          </span>
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               )}
-              Squash
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              className="border-sky-200/80 bg-sky-50 text-sky-800 hover:bg-sky-100 hover:text-sky-900 dark:border-sky-800/60 dark:bg-sky-950/40 dark:text-sky-200 dark:hover:bg-sky-950/70"
-              disabled={prManageBusy || mergeDoctorGate.blocked}
-              onClick={() => void mergePR("merge")}
-            >
-              {mergingMethod === "merge" ? (
-                <Loader2 className="animate-spin" />
-              ) : (
-                <GitMerge />
-              )}
-              Merge
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              className="border-amber-200/80 bg-amber-50 text-amber-900 hover:bg-amber-100 hover:text-amber-950 dark:border-amber-800/60 dark:bg-amber-950/40 dark:text-amber-200 dark:hover:bg-amber-950/70"
-              disabled={prManageBusy || mergeDoctorGate.blocked}
-              onClick={() => void mergePR("rebase")}
-            >
-              {mergingMethod === "rebase" ? (
-                <Loader2 className="animate-spin" />
-              ) : (
-                <GitBranch />
-              )}
-              Rebase
-            </Button>
+            </div>
+            {selectedMergePRView?.isDraft ? (
+              <Alert className="border-amber-500/40 bg-amber-500/10 text-amber-950 dark:text-amber-100">
+                <AlertTriangle className="size-4" />
+                <AlertDescription className="text-xs leading-relaxed">
+                  PR em draft — marque Ready for review antes de mergear.
+                </AlertDescription>
+              </Alert>
+            ) : null}
+            <div className="flex flex-col gap-1.5">
+              <Label>Método de merge</Label>
+              <p className="text-xs text-muted-foreground">
+                Escolha a PR e depois a ação no GitHub.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="border-teal-200/80 bg-teal-50 text-teal-800 hover:bg-teal-100 hover:text-teal-900 dark:border-teal-800/60 dark:bg-teal-950/40 dark:text-teal-200 dark:hover:bg-teal-950/70"
+                  disabled={mergeActionDisabled}
+                  onClick={() => void mergePR("squash")}
+                >
+                  {mergingMethod === "squash" ? (
+                    <Loader2 className="animate-spin" />
+                  ) : (
+                    <Layers />
+                  )}
+                  Squash
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="border-sky-200/80 bg-sky-50 text-sky-800 hover:bg-sky-100 hover:text-sky-900 dark:border-sky-800/60 dark:bg-sky-950/40 dark:text-sky-200 dark:hover:bg-sky-950/70"
+                  disabled={mergeActionDisabled}
+                  onClick={() => void mergePR("merge")}
+                >
+                  {mergingMethod === "merge" ? (
+                    <Loader2 className="animate-spin" />
+                  ) : (
+                    <GitMerge />
+                  )}
+                  Merge
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="border-amber-200/80 bg-amber-50 text-amber-900 hover:bg-amber-100 hover:text-amber-950 dark:border-amber-800/60 dark:bg-amber-950/40 dark:text-amber-200 dark:hover:bg-amber-950/70"
+                  disabled={mergeActionDisabled}
+                  onClick={() => void mergePR("rebase")}
+                >
+                  {mergingMethod === "rebase" ? (
+                    <Loader2 className="animate-spin" />
+                  ) : (
+                    <GitBranch />
+                  )}
+                  Rebase
+                </Button>
+              </div>
+            </div>
           </div>
           <DialogFooter>
             <Button

@@ -417,9 +417,15 @@ func (s *AppService) MarkPRReady() (*desktop.PRStatus, error) {
 	return desktop.MarkPRReady(s.currentPath())
 }
 
-// MergePR merges the open PR (method: squash|merge|rebase).
-func (s *AppService) MergePR(method string) (*desktop.PROutcome, error) {
-	out, err := desktop.MergePR(s.currentPath(), method)
+// ListOpenPRs returns open pull requests for the merge picker.
+func (s *AppService) ListOpenPRs() ([]desktop.PRStatus, error) {
+	return desktop.ListOpenPRs(s.currentPath())
+}
+
+// MergePR merges a PR by number (method: squash|merge|rebase).
+// Pass number <= 0 to merge the open PR on the current branch.
+func (s *AppService) MergePR(number int, method string) (*desktop.PROutcome, error) {
+	out, err := desktop.MergePR(s.currentPath(), number, method)
 	if err != nil {
 		return nil, err
 	}
