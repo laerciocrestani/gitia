@@ -169,9 +169,11 @@ export function DockerEnvironmentSheet({
             <div className="flex flex-col gap-2">
               <Label>Container / serviço</Label>
               {services.length === 0 ? (
-                <Alert>
-                  <AlertDescription>
-                    Nenhum container listado. Rode Up no card Docker e atualize.
+                <Alert className="border-amber-500/40 bg-amber-500/10 text-amber-950 dark:text-amber-100">
+                  <AlertDescription className="text-xs leading-relaxed">
+                    {docker?.composeFile
+                      ? "Compose detectado, containers parados. Rode Up no card Docker e atualize."
+                      : "Nenhum container listado. Rode Up no card Docker e atualize."}
                   </AlertDescription>
                 </Alert>
               ) : (

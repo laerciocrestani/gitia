@@ -259,7 +259,7 @@ Meta de produto = conjunto completo de RFs. Entrega interna em fatias **testáve
 | **C — React** | rerun + dispatch + confirms + avisos de minutos | ✅ Preview/Confirm + `ob ci rerun\|dispatch\|workflows` + dialogs no painel |
 | **D — Orchestrate** | pós-push watch + default-branch warning no push | ✅ gate default branch + `WatchAfterPush` + evento `ci:watch` |
 | **E — Fix IA** | failure window → patch preview → confirm commit/push → watch | ✅ `SuggestCIFix` + `ob ci fix` + botão Corrigir com IA |
-| **F — Harden** | GHE smoke, StatusHub badge, Doctor, cache offline do último summary | Enterprise host; offline falha clara; badge no dashboard |
+| **F — Harden** | GHE smoke, StatusHub badge, Doctor, cache offline do último summary | ✅ `gha.ResolveHost` / Enterprise · `LoadSummary` + cache `ci-cache/` · badge StatusHub/Dashboard · Doctor Actions |
 
 Ordem: A→B→C→D→E→F. “Nascer completo” = A–F mergeados e usáveis; polish visual depois.
 
@@ -307,4 +307,4 @@ docs/architecture/
 
 ---
 
-**Próximo passo:** fatia **F (Harden)** — GHE smoke, StatusHub badge, Doctor, cache offline do último summary.
+**Status:** fatias **A–F** entregues. Polish visual / UX refinements depois do merge.

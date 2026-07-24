@@ -109,6 +109,7 @@ import { CommitCalendarCard } from "@/components/CommitCalendarCard"
 import { TimelinePanel, type TimelineConfirmAction } from "@/components/TimelinePanel"
 import { ActivitySidebar, useActivitySidebar } from "@/components/activity-sidebar"
 import {
+  AlertTriangle,
   ArrowDown,
   ArrowDownUp,
   ArrowUp,
@@ -636,6 +637,30 @@ function ProjectTabs({
                 <span className="size-1.5 rounded-full bg-amber-500" />
               )}
               {s.hasOpenPR && <GitPullRequest className="size-3 text-sky-500" />}
+              {s.ciLabel && (
+                <span
+                  className={
+                    s.ciState === "fail"
+                      ? "text-destructive"
+                      : s.ciState === "pass"
+                        ? "text-emerald-600 dark:text-emerald-400"
+                        : s.ciState === "pending"
+                          ? "text-amber-600 dark:text-amber-400"
+                          : "text-muted-foreground"
+                  }
+                  title={
+                    [
+                      s.ciLabel,
+                      s.ciHost,
+                      s.ciFromCache ? "cache offline" : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")
+                  }
+                >
+                  <Workflow className="size-3" />
+                </span>
+              )}
             </button>
             <Button
               variant="ghost"
@@ -729,10 +754,19 @@ function mergeFastDashboard(prev: Dashboard | null, next: Dashboard): Dashboard 
     (preservedPR && (!preservedPR.state || String(preservedPR.state).toUpperCase().startsWith("OPEN"))
       ? preservedPR
       : undefined)
+  const preserveCI = sameBranch && !next.ciLabel && !!prev.ciLabel
   return {
     ...next,
     openPR,
     docker: dockerStub && prev.docker?.total ? prev.docker : next.docker,
+    ...(preserveCI
+      ? {
+          ciState: prev.ciState,
+          ciLabel: prev.ciLabel,
+          ciFromCache: prev.ciFromCache,
+          ciHost: prev.ciHost,
+        }
+      : {}),
   }
 }
 
@@ -835,6 +869,14 @@ function DashboardView({
   const openPREnabled = canOpenPRInWeb(dash)
   const openPRTitle = openPRDisabledReason(dash)
   const pr = dash.openPR
+  const hasCompose = Boolean(dash.docker.composeFile?.trim())
+  const dockerMissing = hasCompose && !dash.docker.available
+  const dockerDaemonOff =
+    hasCompose && dash.docker.available && !dash.docker.daemonRunning
+  const dockerComposeStopped =
+    hasCompose && dash.docker.daemonRunning && dash.docker.running === 0
+  const dockerNeedsAttention =
+    dockerMissing || dockerDaemonOff || dockerComposeStopped
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
@@ -862,9 +904,25 @@ function DashboardView({
                   </Badge>
                 ) : (
                   <>
-                    <Badge variant="outline" className="ml-1 font-normal">
+                    <Badge
+                      variant="outline"
+                      className={cn(
+                        "ml-1 font-normal",
+                        dockerNeedsAttention &&
+                          "border-amber-500/50 text-amber-700 dark:text-amber-400",
+                      )}
+                    >
                       {dash.docker.running}/{dash.docker.total}
                     </Badge>
+                    {dockerNeedsAttention ? (
+                      <Badge
+                        variant="outline"
+                        className="ml-1 gap-1 border-amber-500/50 font-normal text-amber-700 dark:text-amber-400"
+                      >
+                        <AlertTriangle className="size-3" />
+                        parado
+                      </Badge>
+                    ) : null}
                     <span className="ml-auto text-[11px] font-normal text-muted-foreground">
                       containers →
                     </span>
@@ -886,7 +944,36 @@ function DashboardView({
               <p className="text-xs text-muted-foreground">Consultando Docker / Compose…</p>
             ) : (
               <>
-                <p className="truncate text-xs text-muted-foreground">{dash.docker.summary}</p>
+                {dockerMissing ? (
+                  <Alert className="border-amber-500/40 bg-amber-500/10 text-amber-950 dark:text-amber-100">
+                    <AlertTriangle className="size-4" />
+                    <AlertDescription className="text-xs leading-relaxed">
+                      Compose detectado, Docker CLI não encontrado. Instale o Docker para subir o
+                      ambiente.
+                    </AlertDescription>
+                  </Alert>
+                ) : null}
+                {dockerDaemonOff ? (
+                  <Alert className="border-amber-500/40 bg-amber-500/10 text-amber-950 dark:text-amber-100">
+                    <AlertTriangle className="size-4" />
+                    <AlertDescription className="text-xs leading-relaxed">
+                      Compose detectado, Docker daemon parado. Inicie o Docker para subir o
+                      ambiente.
+                    </AlertDescription>
+                  </Alert>
+                ) : null}
+                {dockerComposeStopped ? (
+                  <Alert className="border-amber-500/40 bg-amber-500/10 text-amber-950 dark:text-amber-100">
+                    <AlertTriangle className="size-4" />
+                    <AlertDescription className="text-xs leading-relaxed">
+                      Compose detectado, containers parados. Use <span className="font-medium">Up</span>{" "}
+                      para subir o ambiente.
+                    </AlertDescription>
+                  </Alert>
+                ) : null}
+                {!dockerNeedsAttention ? (
+                  <p className="truncate text-xs text-muted-foreground">{dash.docker.summary}</p>
+                ) : null}
                 <div className="flex flex-wrap gap-1.5">
                   <Button size="xs" onClick={onDockerUp} disabled={busy}>
                     <Play />
@@ -991,6 +1078,25 @@ function DashboardView({
                 }
                 className="text-xs"
               />
+              {dash.ciLabel && (
+                <Badge
+                  variant={
+                    dash.ciState === "fail"
+                      ? "destructive"
+                      : dash.ciState === "pass"
+                        ? "secondary"
+                        : "outline"
+                  }
+                  title={[dash.ciHost, dash.ciFromCache ? "cache offline" : ""]
+                    .filter(Boolean)
+                    .join(" · ")}
+                  className="gap-1"
+                >
+                  <Workflow className="size-3" />
+                  {dash.ciLabel}
+                  {dash.ciFromCache ? " · off" : ""}
+                </Badge>
+              )}
               <Button
                 size="sm"
                 variant="outline"
@@ -4471,6 +4577,10 @@ function App() {
           void startCommit()
         }}
         onOpenFix={() => void openDoctorFix()}
+        onDockerUp={() => {
+          setDoctorOpen(false)
+          void dockerAction(() => AppService.DockerUp(false))
+        }}
       />
 
       <DoctorFixDialog

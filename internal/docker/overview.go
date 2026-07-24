@@ -21,6 +21,13 @@ func LoadOverview(workDir string) *Overview {
 	ov := &Overview{
 		Available: HasDocker(),
 	}
+	if workDir == "" {
+		workDir, _ = os.Getwd()
+	}
+	// Detect compose even when CLI/daemon are down so Doctor/UI can warn
+	// that the repo has Docker but the environment is stopped.
+	ov.ComposeFile = FindComposeFile(workDir)
+
 	if !ov.Available {
 		ov.Error = "docker CLI não encontrado no PATH"
 		return ov
@@ -32,10 +39,6 @@ func LoadOverview(workDir string) *Overview {
 		return ov
 	}
 
-	if workDir == "" {
-		workDir, _ = os.Getwd()
-	}
-	ov.ComposeFile = FindComposeFile(workDir)
 	if ov.ComposeFile == "" {
 		return ov
 	}

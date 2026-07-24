@@ -49,6 +49,7 @@ export function DoctorDialog({
   onExplain,
   onStartCommit,
   onOpenFix,
+  onDockerUp,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -59,6 +60,7 @@ export function DoctorDialog({
   onExplain: () => void
   onStartCommit: () => void
   onOpenFix: () => void
+  onDockerUp?: () => void
 }) {
   const meta = overallMeta(report?.overall || "ok")
   const OverallIcon = meta.Icon
@@ -147,6 +149,12 @@ export function DoctorDialog({
                     !issues.some((i) => i.code === "work_on_merged_branch") && (
                       <Button size="sm" onClick={onStartCommit}>
                         Commit
+                      </Button>
+                    )}
+                  {onDockerUp &&
+                    issues.some((i) => i.code === "docker_stopped") && (
+                      <Button size="sm" variant="outline" onClick={onDockerUp}>
+                        Docker Up
                       </Button>
                     )}
                   {issues.some((i) =>
