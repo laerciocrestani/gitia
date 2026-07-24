@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 
 	"github.com/laerciocrestani/openbench/internal/ai"
 	"github.com/laerciocrestani/openbench/internal/config"
 	"github.com/laerciocrestani/openbench/internal/formatter"
+	"github.com/laerciocrestani/openbench/internal/gha"
 	gitpkg "github.com/laerciocrestani/openbench/internal/git"
 	prpkg "github.com/laerciocrestani/openbench/internal/pr"
 	"github.com/laerciocrestani/openbench/internal/ui"
@@ -29,12 +31,14 @@ type Options struct {
 }
 
 type Result struct {
-	Suggestion   *ai.CommitSuggestion
-	PRSuggestion *ai.PRSuggestion
-	Message      string
-	PRBody       string
-	PRURL        string
-	PRPreview    string
+	Suggestion           *ai.CommitSuggestion
+	PRSuggestion         *ai.PRSuggestion
+	Message              string
+	PRBody               string
+	PRURL                string
+	PRPreview            string
+	DefaultBranchWarning string
+	CIWatchMessage       string
 }
 
 func (o Options) session(command string) *ui.Session {
@@ -207,6 +211,17 @@ func RunPush(ctx context.Context, opts Options) (*Result, error) {
 		result = &Result{}
 	}
 
+	branch, _ := repo.CurrentBranch()
+	def := gha.ResolveDefaultBranch(repo.Dir())
+	warn := gha.DefaultBranchWarning(branch, def)
+	if result == nil {
+		result = &Result{}
+	}
+	result.DefaultBranchWarning = warn
+	if warn != "" {
+		prog.Detail(warn)
+	}
+
 	if err := prog.Step("Pushing to origin", func() error {
 		if opts.DryRun {
 			prog.Detail("git push -u origin HEAD")
@@ -224,6 +239,42 @@ func RunPush(ctx context.Context, opts Options) (*Result, error) {
 		}
 		printUsage(prog, cfg, provider.UsageStats())
 	}
+
+	if !opts.DryRun {
+		_ = prog.Step("Acompanhando GitHub Actions", func() error {
+			client, err := gha.Open(repo.Dir())
+			if err != nil {
+				prog.Detail("CI: " + err.Error())
+				return nil
+			}
+			headSHA := ""
+			if out, err := exec.Command("git", "-C", repo.Dir(), "rev-parse", "HEAD").Output(); err == nil {
+				headSHA = strings.TrimSpace(string(out))
+			}
+			watch, err := client.WatchAfterPush(ctx, gha.WatchOptions{
+				Branch:  branch,
+				HeadSHA: headSHA,
+				OnUpdate: func(snap gha.WatchSnapshot) {
+					if snap.Message != "" {
+						prog.Detail(snap.Message)
+					}
+				},
+			})
+			if err != nil {
+				prog.Detail("CI: " + err.Error())
+				return nil
+			}
+			if watch != nil {
+				result.CIWatchMessage = watch.Message
+				if watch.Message != "" {
+					prog.Detail(watch.Message)
+				}
+				prog.Detail(fmt.Sprintf("Actions usage [%s]: %s", watch.Usage.State, watch.Usage.Message))
+			}
+			return nil
+		})
+	}
+
 	prog.Success("Ready! 🚀")
 	return result, nil
 }

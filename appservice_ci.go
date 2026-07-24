@@ -1,6 +1,28 @@
 package main
 
-import "github.com/laerciocrestani/openbench/internal/desktop"
+import (
+	"strings"
+
+	"github.com/laerciocrestani/openbench/internal/desktop"
+)
+
+func (s *AppService) startCIWatch(path, branch, headSHA string) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return
+	}
+	s.mu.RLock()
+	app := s.app
+	s.mu.RUnlock()
+	if app == nil {
+		return
+	}
+	go func() {
+		_ = desktop.WatchCIAfterPush(path, branch, headSHA, func(upd desktop.CIWatchUpdate) {
+			app.Event.Emit("ci:watch", upd)
+		})
+	}()
+}
 
 // CIStatus lists GitHub Actions runs for the open project (Observe slice).
 func (s *AppService) CIStatus(failedOnly bool, limit int) (*desktop.CIStatusView, error) {

@@ -18,6 +18,7 @@ import type {
   Prefs,
   ProjectStatus,
   PRPreview,
+  PushPreview,
   SyncResult,
   TimelineView,
 } from "../bindings/github.com/laerciocrestani/openbench/internal/desktop"
@@ -37,6 +38,16 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import {
   Dialog,
   DialogContent,
@@ -1300,6 +1311,9 @@ function App() {
   const [recreateService, setRecreateService] = useState("")
   const [dockerEnvOpen, setDockerEnvOpen] = useState(false)
   const [ciOpen, setCiOpen] = useState(false)
+  const [pushConfirmOpen, setPushConfirmOpen] = useState(false)
+  const [pushPreview, setPushPreview] = useState<PushPreview | null>(null)
+  const [ciWatchMsg, setCiWatchMsg] = useState<string | null>(null)
   const [dockerShellReq, setDockerShellReq] = useState<DockerShellRequest | null>(null)
 
   // Sync / Hygiene
@@ -2011,6 +2025,25 @@ function App() {
     await startCommitAction("commit")
   }
 
+  const doPushOnly = async () => {
+    setBusy(true)
+    setError(null)
+    setCiWatchMsg("Acompanhando GitHub Actions…")
+    try {
+      const out = await AppService.Push()
+      if (out?.message) setCiWatchMsg(out.message)
+      setPushConfirmOpen(false)
+      setPushPreview(null)
+      await refresh()
+      setCiOpen(true)
+    } catch (e) {
+      setError(errText(e))
+      setCiWatchMsg(null)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const runPushOnly = async () => {
     if (!dash) return
     if (doctorBlocksAction(doctorReport, "push")) {
@@ -2022,11 +2055,16 @@ function App() {
     setBusy(true)
     setError(null)
     try {
-      await AppService.Push()
-      await refresh()
+      const prev = await AppService.PreviewPush()
+      if (prev?.defaultBranchWarning) {
+        setPushPreview(prev)
+        setPushConfirmOpen(true)
+        setBusy(false)
+        return
+      }
+      await doPushOnly()
     } catch (e) {
       setError(errText(e))
-    } finally {
       setBusy(false)
     }
   }
@@ -2066,9 +2104,12 @@ function App() {
     setError(null)
     try {
       if (commitAction === "push" || commitAction === "branch-commit-push") {
-        await AppService.ConfirmCommitAndPush(commitMessage)
+        setCiWatchMsg("Acompanhando GitHub Actions…")
+        const out = await AppService.ConfirmCommitAndPush(commitMessage)
+        if (out?.message) setCiWatchMsg(out.message)
         setCommitOpen(false)
         await refresh()
+        setCiOpen(true)
       } else if (commitAction === "pr") {
         await AppService.ConfirmCommit(commitMessage)
         setCommitOpen(false)
@@ -2081,6 +2122,7 @@ function App() {
       }
     } catch (e) {
       setError(errText(e))
+      setCiWatchMsg(null)
     } finally {
       setCommitBusy(false)
     }
@@ -2573,11 +2615,26 @@ function App() {
       }
     })
 
+    const offCIWatch = Events.On("ci:watch", (ev) => {
+      const raw = wailsEventData<{ message?: string; phase?: string }>(ev)
+      if (raw?.message) {
+        setCiWatchMsg(
+          raw.phase && raw.phase !== "done"
+            ? `${raw.message}`
+            : raw.message,
+        )
+      }
+      if (raw?.phase === "done" || raw?.phase === "timeout") {
+        void actionsRef.current.refresh()
+      }
+    })
+
     return () => {
       offTray()
       offStatus()
       offDashboard()
       offUpdatePrompt()
+      offCIWatch()
     }
   }, [applyDashboard])
 
@@ -2699,6 +2756,32 @@ function App() {
               <Button variant="ghost" size="xs" onClick={() => setError(null)}>
                 Fechar
               </Button>
+            </AlertDescription>
+          </Alert>
+        )}
+        {ciWatchMsg && (
+          <Alert className="shrink-0">
+            <AlertDescription className="flex items-center justify-between gap-3">
+              <span className="truncate text-xs">
+                <Workflow className="mr-1 inline size-3.5" />
+                {ciWatchMsg}
+              </span>
+              <div className="flex shrink-0 gap-1">
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  onClick={() => setCiOpen(true)}
+                >
+                  CI
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  onClick={() => setCiWatchMsg(null)}
+                >
+                  Fechar
+                </Button>
+              </div>
             </AlertDescription>
           </Alert>
         )}
@@ -3579,6 +3662,15 @@ function App() {
                   </AlertDescription>
                 </Alert>
               )}
+              {(commitAction === "push" ||
+                commitAction === "branch-commit-push") &&
+                commitPreview?.defaultBranchWarning && (
+                  <Alert variant="destructive">
+                    <AlertDescription className="text-xs">
+                      {commitPreview.defaultBranchWarning}
+                    </AlertDescription>
+                  </Alert>
+                )}
             </div>
           )}
           <DialogFooter>
@@ -3602,6 +3694,37 @@ function App() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={pushConfirmOpen} onOpenChange={setPushConfirmOpen}>
+        <AlertDialogContent className="sm:max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirmar push</AlertDialogTitle>
+            <AlertDialogDescription className="text-left text-xs">
+              {pushPreview?.defaultBranchWarning ||
+                "O push vai disparar CI no GitHub Actions."}
+              {pushPreview?.branch ? (
+                <span className="mt-2 block font-mono">
+                  branch {pushPreview.branch}
+                  {pushPreview.ahead > 0 ? ` · ↑${pushPreview.ahead}` : ""}
+                </span>
+              ) : null}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={busy}
+              onClick={(e) => {
+                e.preventDefault()
+                void doPushOnly()
+              }}
+            >
+              {busy ? <Loader2 className="size-3.5 animate-spin" /> : null}
+              Confirmar push
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* New branch before commit */}
       <Dialog open={newBranchOpen} onOpenChange={setNewBranchOpen}>
