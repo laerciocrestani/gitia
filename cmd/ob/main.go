@@ -8,6 +8,7 @@ import (
 
 	"github.com/laerciocrestani/openbench/internal/app"
 	"github.com/laerciocrestani/openbench/internal/config"
+	"github.com/laerciocrestani/openbench/internal/desktop"
 	gitpkg "github.com/laerciocrestani/openbench/internal/git"
 	"github.com/laerciocrestani/openbench/internal/setup"
 	"github.com/laerciocrestani/openbench/internal/tui"
@@ -560,7 +561,28 @@ func main() {
 	ciDispatchCmd.Flags().StringVar(&ciRef, "ref", "", "branch/tag do workflow")
 	ciDispatchCmd.Flags().StringArrayVarP(&ciFields, "field", "f", nil, "input key=value (repetível)")
 	ciDispatchCmd.Flags().BoolVar(&ciYes, "yes", false, "confirma sem prompt")
-	ciCmd.AddCommand(ciStatusCmd, ciViewCmd, ciUsageCmd, ciLogsCmd, ciRerunCmd, ciWorkflowsCmd, ciDispatchCmd)
+	var ciFixPush bool
+	ciFixCmd := &cobra.Command{
+		Use:   "fix <run-id>",
+		Short: "Corrige falha de CI com IA (preview → confirmação → commit/push)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, err := strconv.ParseInt(args[0], 10, 64)
+			if err != nil {
+				return fmt.Errorf("run-id inválido: %s", args[0])
+			}
+			return desktop.RunCIFixCLI(cmd.Context(), desktop.CIFixCLIOptions{
+				RunID: id,
+				JobID: ciJobID,
+				Yes:   ciYes,
+				Push:  ciFixPush,
+			})
+		},
+	}
+	ciFixCmd.Flags().Int64Var(&ciJobID, "job", 0, "job id específico")
+	ciFixCmd.Flags().BoolVar(&ciYes, "yes", false, "confirma sem prompt")
+	ciFixCmd.Flags().BoolVar(&ciFixPush, "push", true, "após aplicar, commit+push e acompanhar CI")
+	ciCmd.AddCommand(ciStatusCmd, ciViewCmd, ciUsageCmd, ciLogsCmd, ciRerunCmd, ciWorkflowsCmd, ciDispatchCmd, ciFixCmd)
 
 	root.AddCommand(installCmd, updateCmd, syncCmd, hygieneCmd, versionCmd, statusCmd, commitCmd, pushCmd, prCmd, configCmd, pricingCmd, reportCmd, uiCmd, doctorCmd, dockerCmd, ciCmd)
 

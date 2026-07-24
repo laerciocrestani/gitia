@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react"
 import { AppService } from "../../bindings/github.com/laerciocrestani/openbench"
 import type {
   CIDispatchPreviewView,
+  CIFixPreviewView,
   CILogView,
   CIRerunPreviewView,
   CIRunDetailView,
@@ -52,6 +53,7 @@ import {
   RefreshCw,
   RotateCcw,
   Workflow,
+  Wrench,
 } from "lucide-react"
 
 function errText(e: unknown): string {
@@ -154,6 +156,8 @@ export function CIPanel({
   )
   const [dispatchPreview, setDispatchPreview] =
     useState<CIDispatchPreviewView | null>(null)
+  const [fixPreview, setFixPreview] = useState<CIFixPreviewView | null>(null)
+  const [fixMessage, setFixMessage] = useState("")
 
   const refresh = useCallback(async () => {
     if (!projectPath) return
@@ -266,6 +270,37 @@ export function CIPanel({
       )
       setDispatchPreview(null)
       await refresh()
+    } catch (e) {
+      setError(errText(e))
+    } finally {
+      setMutateBusy(false)
+    }
+  }
+
+
+  const askFix = async (runId: number, jobId: number) => {
+    setMutateBusy(true)
+    setError(null)
+    try {
+      const prev = await AppService.PreviewCIFix(runId, jobId)
+      setFixPreview(prev ?? null)
+      setFixMessage(prev?.commitMessage ?? "")
+    } catch (e) {
+      setError(errText(e))
+    } finally {
+      setMutateBusy(false)
+    }
+  }
+
+  const confirmFix = async () => {
+    if (!fixPreview) return
+    setMutateBusy(true)
+    setError(null)
+    try {
+      await AppService.ConfirmCIFix(fixMessage || fixPreview.commitMessage, true)
+      setFixPreview(null)
+      await refresh()
+      if (fixPreview.runId) await openRun(fixPreview.runId)
     } catch (e) {
       setError(errText(e))
     } finally {
@@ -423,6 +458,17 @@ export function CIPanel({
                     >
                       <RotateCcw className="size-3.5" />
                       Re-run falhos
+                    </Button>
+                  )}
+                  {detail.run.failed && (
+                    <Button
+                      size="sm"
+                      variant="default"
+                      disabled={mutateBusy}
+                      onClick={() => void askFix(detail.run.id, 0)}
+                    >
+                      <Wrench className="size-3.5" />
+                      Corrigir com IA
                     </Button>
                   )}
                   {log && (
@@ -703,6 +749,68 @@ export function CIPanel({
                 <Play className="size-3.5" />
               )}
               Confirmar dispatch
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={!!fixPreview}
+        onOpenChange={(v) => {
+          if (!v) setFixPreview(null)
+        }}
+      >
+        <AlertDialogContent className="sm:max-w-lg">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Corrigir CI com IA</AlertDialogTitle>
+            <AlertDialogDescription className="space-y-2 text-left">
+              <span className="block text-sm text-foreground">
+                {fixPreview?.summary}
+              </span>
+              {fixPreview?.defaultBranchWarning ? (
+                <span className="block text-destructive">
+                  {fixPreview.defaultBranchWarning}
+                </span>
+              ) : null}
+              <span className="block text-xs text-muted-foreground">
+                {(fixPreview?.files ?? []).length} arquivo(s) · commit+push após
+                confirmar
+              </span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-2 text-xs">
+            <ul className="max-h-32 space-y-1 overflow-auto rounded-md border p-2 font-mono">
+              {(fixPreview?.files ?? []).map((f) => (
+                <li key={f.path}>
+                  {f.path} ({f.bytes} B)
+                </li>
+              ))}
+            </ul>
+            <textarea
+              className="min-h-20 w-full rounded-md border bg-background p-2 font-mono text-xs"
+              value={fixMessage}
+              onChange={(e) => setFixMessage(e.target.value)}
+            />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={mutateBusy}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={
+                mutateBusy ||
+                !fixPreview?.files?.length ||
+                !fixMessage.trim()
+              }
+              onClick={(e) => {
+                e.preventDefault()
+                void confirmFix()
+              }}
+            >
+              {mutateBusy ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                <Wrench className="size-3.5" />
+              )}
+              Aplicar, commit e push
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

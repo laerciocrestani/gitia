@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"strings"
 
 	"github.com/laerciocrestani/openbench/internal/desktop"
@@ -62,4 +63,23 @@ func (s *AppService) PreviewCIDispatch(workflow, ref string, fields []string) (*
 // ConfirmCIDispatch executes workflow_dispatch after UI confirmation.
 func (s *AppService) ConfirmCIDispatch(workflow, ref string, fields []string) error {
 	return desktop.ConfirmCIDispatch(s.currentPath(), workflow, ref, fields)
+}
+
+// PreviewCIFix asks the AI for a code fix from a failed Actions run log.
+func (s *AppService) PreviewCIFix(runID, jobID int64) (*desktop.CIFixPreviewView, error) {
+	return desktop.PreviewCIFix(context.Background(), s.currentPath(), runID, jobID)
+}
+
+// ConfirmCIFix applies the pending AI fix, commits, and pushes (CI watch in background).
+func (s *AppService) ConfirmCIFix(commitMessage string, push bool) (*desktop.CIFixOutcome, error) {
+	out, err := desktop.ConfirmCIFix(context.Background(), s.currentPath(), commitMessage, push, nil)
+	if err != nil {
+		return nil, err
+	}
+	s.syncHubFromPrefs()
+	s.refreshTray()
+	if out != nil && out.Pushed {
+		s.startCIWatch(s.currentPath(), out.Branch, "")
+	}
+	return out, nil
 }

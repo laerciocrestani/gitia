@@ -88,6 +88,10 @@ func (c *openAIClient) ExplainHealth(ctx context.Context, facts, lang string) (*
 	return explainHealthWithRetry(ctx, facts, lang, c.chat)
 }
 
+func (c *openAIClient) SuggestCIFix(ctx context.Context, logWindow, lang, branch string) (*CIFixSuggestion, error) {
+	return suggestCIFixWithRetry(ctx, logWindow, lang, branch, c.chat)
+}
+
 func (c *openAIClient) chat(ctx context.Context, prompt, label string) (string, error) {
 	return withModelFallback(ctx, c.cfg, c.cfg.Model, func(model string) (string, error) {
 		return callWithRetry(ctx, c.providerName(), func() (string, error) {
